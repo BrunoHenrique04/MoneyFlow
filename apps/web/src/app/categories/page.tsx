@@ -4,7 +4,31 @@ import { useCategories, useCreateCategory, useDeleteCategory } from '@/hooks/use
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2 } from 'lucide-react'
-import type { Category } from '@moneyflow/shared'
+import type { Category, CategoryType } from '@moneyflow/shared'
+
+const CATEGORY_TYPE_LABELS: Record<CategoryType, string> = {
+  FIXED:      'Fixo',
+  HEALTH:     'Saúde',
+  FOOD:       'Alimentação',
+  TRANSPORT:  'Transporte',
+  LEISURE:    'Lazer',
+  EDUCATION:  'Educação',
+  INVESTMENT: 'Investimento',
+  INCOME:     'Renda',
+  OTHER:      'Outro',
+}
+
+const CATEGORY_TYPE_COLORS: Record<CategoryType, string> = {
+  FIXED:      'bg-purple-100 text-purple-800',
+  HEALTH:     'bg-red-100 text-red-800',
+  FOOD:       'bg-yellow-100 text-yellow-800',
+  TRANSPORT:  'bg-blue-100 text-blue-800',
+  LEISURE:    'bg-orange-100 text-orange-800',
+  EDUCATION:  'bg-green-100 text-green-800',
+  INVESTMENT: 'bg-emerald-100 text-emerald-800',
+  INCOME:     'bg-teal-100 text-teal-800',
+  OTHER:      'bg-gray-100 text-gray-700',
+}
 
 export default function CategoriesPage() {
   const { data: categories, isLoading } = useCategories()
@@ -12,10 +36,14 @@ export default function CategoriesPage() {
   const remove = useDeleteCategory()
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
+  const [categoryType, setCategoryType] = useState<CategoryType>('OTHER')
 
   const handleCreate = () => {
     if (!name.trim()) return
-    create.mutate({ name, color: '#6B7280', icon: 'tag' }, { onSuccess: () => { setName(''); setShowForm(false) } })
+    create.mutate(
+      { name, color: '#6B7280', icon: 'tag', categoryType },
+      { onSuccess: () => { setName(''); setCategoryType('OTHER'); setShowForm(false) } },
+    )
   }
 
   if (isLoading) return <div className="text-muted-foreground text-sm py-8 text-center">Carregando...</div>
@@ -37,6 +65,15 @@ export default function CategoriesPage() {
             onChange={(e) => setName(e.target.value)}
             className="border border-border rounded-md px-3 py-2 text-sm w-full"
           />
+          <select
+            value={categoryType}
+            onChange={(e) => setCategoryType(e.target.value as CategoryType)}
+            className="border border-border rounded-md px-3 py-2 text-sm w-full bg-background"
+          >
+            {(Object.keys(CATEGORY_TYPE_LABELS) as CategoryType[]).map((t) => (
+              <option key={t} value={t}>{CATEGORY_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
           <Button onClick={handleCreate} disabled={create.isPending}>
             {create.isPending ? 'Salvando...' : 'Criar categoria'}
           </Button>
@@ -50,6 +87,9 @@ export default function CategoriesPage() {
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
               <span className="font-medium text-sm">{cat.name}</span>
               {cat.isDefault && <Badge variant="muted">Padrão</Badge>}
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_TYPE_COLORS[cat.categoryType as CategoryType] ?? CATEGORY_TYPE_COLORS.OTHER}`}>
+                {CATEGORY_TYPE_LABELS[cat.categoryType as CategoryType] ?? cat.categoryType}
+              </span>
             </div>
             {!cat.isDefault && (
               <Button

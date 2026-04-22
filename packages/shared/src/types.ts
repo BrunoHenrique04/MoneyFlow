@@ -1,3 +1,4 @@
+import type { CategoryType } from './schemas/category'
 export type TransactionType = 'SINGLE' | 'INSTALLMENT' | 'RECURRING' | 'INCOME'
 export type UtilityTag = 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
@@ -39,6 +40,7 @@ export interface Category {
   color: string
   icon: string
   isDefault: boolean
+  categoryType: CategoryType
   createdAt: string
 }
 

@@ -46,13 +46,14 @@ model Account {
 }
 
 model Category {
-  id        String   @id @default(cuid())
-  userId    String
-  name      String
-  color     String   @default("#6B7280")
-  icon      String   @default("tag")
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  color        String   @default("#6B7280")
+  icon         String   @default("tag")
+  isDefault    Boolean  @default(false)
+  categoryType String   @default("OTHER")  // FIXED | HEALTH | FOOD | TRANSPORT | LEISURE | EDUCATION | INVESTMENT | INCOME | OTHER
+  createdAt    DateTime @default(now())
 
   user           User            @relation(fields: [userId], references: [id])
   transactions   Transaction[]
