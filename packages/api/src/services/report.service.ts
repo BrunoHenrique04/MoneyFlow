@@ -1,5 +1,7 @@
 import { addMonths } from 'date-fns'
 import { prisma } from '../prisma'
+import { calcBudgetLayers } from '../brain/calculator'
+import type { GoalWithAllocation, TransactionWithCategory } from '../brain/types'
 
 async function getUserId() {
   const user = await prisma.user.findFirstOrThrow()
@@ -61,7 +63,47 @@ export async function getMonthlyReport(month: string = currentMonth()) {
       nonEssential: transactions.filter((t) => t.utilityTag === 'NON_ESSENTIAL').reduce((s, t) => s + t.amount, 0),
       investment: transactions.filter((t) => t.utilityTag === 'INVESTMENT').reduce((s, t) => s + t.amount, 0),
     },
+    transactions: transactions.map((t) => ({
+      id: t.id,
+      description: t.description,
+      amount: t.amount,
+      type: t.type,
+      utilityTag: t.utilityTag,
+      status: t.status,
+      categoryName: t.category.name,
+      categoryColor: t.category.color,
+      categoryType: t.category.categoryType,
+    })),
   }
+}
+
+export async function getBudgetTimeline(futurMonths = 9, pastMonths = 3) {
+  const userId = await getUserId()
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
+  const rawGoals = await prisma.goal.findMany({ where: { userId, status: 'ACTIVE' } })
+  const goals: GoalWithAllocation[] = rawGoals.map((g) => ({ ...g, targetDate: new Date(g.targetDate) }))
+
+  const now = new Date()
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const result = []
+
+  for (let i = -pastMonths; i < futurMonths; i++) {
+    const date = addMonths(now, i)
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const range = monthToRange(month)
+    const isCurrent = month === currentMonthStr
+    const isFuture = month > currentMonthStr
+
+    const txs = await prisma.transaction.findMany({
+      where: { userId, dueDate: range },
+      include: { category: true },
+    }) as TransactionWithCategory[]
+
+    const layers = calcBudgetLayers(user.monthlyIncome, txs, goals, isCurrent)
+    result.push({ month, isFuture, isCurrent, ...layers })
+  }
+
+  return result
 }
 
 export async function getInstallmentTimeline(months = 6) {
