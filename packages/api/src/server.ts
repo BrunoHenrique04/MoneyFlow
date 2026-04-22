@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import { authMiddleware } from './middleware/auth'
 import { userRoutes } from './routes/user'
 import { accountRoutes } from './routes/accounts'
@@ -9,6 +10,7 @@ import { goalRoutes } from './routes/goals'
 import { recommendationRoutes } from './routes/recommendations'
 import { reportRoutes } from './routes/reports'
 import { settingsRoutes } from './routes/settings'
+import { debtRoutes } from './routes/debts'
 
 const app = Fastify({ logger: true })
 
@@ -17,6 +19,8 @@ async function bootstrap() {
     origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   })
+
+  await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } }) // 10 MB
 
   app.addHook('onRequest', authMiddleware)
 
@@ -30,6 +34,7 @@ async function bootstrap() {
       await api.register(recommendationRoutes)
       await api.register(reportRoutes)
       await api.register(settingsRoutes)
+      await api.register(debtRoutes)
     },
     { prefix: '/api/v1' },
   )

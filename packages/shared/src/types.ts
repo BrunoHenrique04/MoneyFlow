@@ -100,6 +100,24 @@ export interface Recommendation {
   calculatedAt: string
 }
 
+export type Situacao = 'PAGO' | 'NAO_PAGO' | 'RECEBER'
+
+export interface Debt {
+  id: string
+  userId: string
+  pessoa: string
+  dataCompra: string | null
+  descricao: string
+  banco: string | null
+  valorAPagar: number
+  valorTotalCompra: number
+  situacao: Situacao
+  dataVencimento: string | null
+  observacoes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface BudgetSnapshot {
   id: string
   userId: string
