@@ -25,6 +25,7 @@ model User {
   recommendations   Recommendation[]
   budgetSnapshots   BudgetSnapshot[]
   categoryLimits    CategoryLimit[]
+  debts             Debt[]
 }
 
 model Account {
@@ -45,13 +46,14 @@ model Account {
 }
 
 model Category {
-  id        String   @id @default(cuid())
-  userId    String
-  name      String
-  color     String   @default("#6B7280")
-  icon      String   @default("tag")
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  color        String   @default("#6B7280")
+  icon         String   @default("tag")
+  isDefault    Boolean  @default(false)
+  categoryType String   @default("OTHER")
+  createdAt    DateTime @default(now())
 
   user           User            @relation(fields: [userId], references: [id])
   transactions   Transaction[]
@@ -166,4 +168,28 @@ model BudgetSnapshot {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, month])
+}
+
+// ─── Dívida / Controle de Quem Deve ──────────────────────────────────────────
+
+model Debt {
+  id               String    @id @default(cuid())
+  userId           String
+  pessoa           String
+  dataCompra       DateTime?
+  descricao        String
+  banco            String?
+  valorAPagar      Float
+  valorTotalCompra Float
+  situacao         String    @default("NAO_PAGO")
+  dataVencimento   DateTime?
+  observacoes      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([userId, pessoa])
+  @@index([userId, situacao])
 }

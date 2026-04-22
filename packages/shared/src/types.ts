@@ -1,3 +1,4 @@
+import type { CategoryType } from './schemas/category'
 export type TransactionType = 'SINGLE' | 'INSTALLMENT' | 'RECURRING' | 'INCOME'
 export type UtilityTag = 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
@@ -39,6 +40,7 @@ export interface Category {
   color: string
   icon: string
   isDefault: boolean
+  categoryType: CategoryType
   createdAt: string
 }
 
@@ -98,6 +100,24 @@ export interface Recommendation {
   alerts: string[]
   suggestions: string[]
   calculatedAt: string
+}
+
+export type Situacao = 'PAGO' | 'NAO_PAGO' | 'RECEBER'
+
+export interface Debt {
+  id: string
+  userId: string
+  pessoa: string
+  dataCompra: string | null
+  descricao: string
+  banco: string | null
+  valorAPagar: number
+  valorTotalCompra: number
+  situacao: Situacao
+  dataVencimento: string | null
+  observacoes: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface BudgetSnapshot {
