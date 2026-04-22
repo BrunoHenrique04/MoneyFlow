@@ -17,6 +17,13 @@ export function useInstallmentTimeline(months = 6) {
   })
 }
 
+export function useBudgetTimeline(future = 9, past = 3) {
+  return useQuery({
+    queryKey: ['reports', 'budget-timeline', future, past],
+    queryFn: () => api.get(`/reports/budget-timeline?future=${future}&past=${past}`),
+  })
+}
+
 export function useRecommendation() {
   return useQuery({
     queryKey: ['recommendations', 'current'],
