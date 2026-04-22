@@ -1,0 +1,1 @@
+{"@prisma/client":"postinstall","@prisma/engines":"postinstall","esbuild":"postinstall","prisma":"postinstall","unrs-resolver":"postinstall"}
