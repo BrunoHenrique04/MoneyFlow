@@ -12,4 +12,12 @@ export async function reportRoutes(app: FastifyInstance) {
     const { months } = req.query as { months?: string }
     return ok(reply, await reportService.getInstallmentTimeline(months ? parseInt(months) : 6))
   })
+
+  app.get('/reports/budget-timeline', async (req, reply) => {
+    const { future, past } = req.query as { future?: string; past?: string }
+    return ok(reply, await reportService.getBudgetTimeline(
+      future ? parseInt(future) : 9,
+      past   ? parseInt(past)   : 3,
+    ))
+  })
 }
