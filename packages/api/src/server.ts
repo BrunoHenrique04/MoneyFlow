@@ -17,7 +17,8 @@ const app = Fastify({ logger: true })
 async function bootstrap() {
   await app.register(cors, {
     origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-API-Key'],
   })
 
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } }) // 10 MB

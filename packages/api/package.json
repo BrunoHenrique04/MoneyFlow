@@ -13,19 +13,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/multipart": "^9.4.0",
     "@moneyflow/shared": "workspace:*",
     "@prisma/client": "^6.1.0",
-    "fastify": "^5.2.1",
-    "@fastify/cors": "^10.0.2",
-    "zod": "^3.24.1",
     "date-fns": "^4.1.0",
+    "fastify": "^5.2.1",
     "tsx": "^4.19.2",
     "xlsx": "^0.18.5",
-    "@fastify/multipart": "^9.0.3"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "prisma": "^6.1.0",
-    "typescript": "^5.7.2",
-    "@types/node": "^22.10.2"
+    "typescript": "^5.7.2"
   }
 }
