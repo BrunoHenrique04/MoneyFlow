@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  monthlyIncome  Float    @default(0)
+  currency       String   @default("BRL")
+  timezone       String   @default("America/Sao_Paulo")
+  telegramChatId String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  accounts          Account[]
+  categories        Category[]
+  transactions      Transaction[]
+  installmentGroups InstallmentGroup[]
+  goals             Goal[]
+  recommendations   Recommendation[]
+  budgetSnapshots   BudgetSnapshot[]
+  categoryLimits    CategoryLimit[]
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#6B7280")
+  icon      String   @default("bank")
+  balance   Float    @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#6B7280")
+  icon      String   @default("tag")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user           User            @relation(fields: [userId], references: [id])
+  transactions   Transaction[]
+  categoryLimits CategoryLimit[]
+
+  @@index([userId])
+}
+
+model CategoryLimit {
+  id         String @id @default(cuid())
+  userId     String
+  categoryId String
+  limitValue Float
+
+  user     User     @relation(fields: [userId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([userId, categoryId])
+}
+
+model InstallmentGroup {
+  id                String   @id @default(cuid())
+  userId            String
+  description       String
+  totalAmount       Float
+  totalInstallments Int
+  firstDueDate      DateTime
+  createdAt         DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Transaction {
+  id                 String    @id @default(cuid())
+  userId             String
+  accountId          String
+  categoryId         String
+  installmentGroupId String?
+  description        String
+  amount             Float
+  type               String
+  utilityTag         String
+  status             String    @default("PENDING")
+  dueDate            DateTime
+  paidAt             DateTime?
+  installmentNumber  Int?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id])
+  account          Account           @relation(fields: [accountId], references: [id])
+  category         Category          @relation(fields: [categoryId], references: [id])
+  installmentGroup InstallmentGroup? @relation(fields: [installmentGroupId], references: [id])
+
+  @@index([userId, dueDate])
+  @@index([userId, status])
+  @@index([installmentGroupId])
+}
+
+model Goal {
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  targetAmount  Float
+  savedAmount   Float    @default(0)
+  targetDate    DateTime
+  priority      String   @default("MEDIUM")
+  status        String   @default("ACTIVE")
+  monthlyAporte Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+}
+
+model Recommendation {
+  id               String   @id @default(cuid())
+  userId           String
+  referenceMonth   String
+  essentialBudget  Float
+  investmentBudget Float
+  freeBudget       Float
+  alerts           String   @default("[]")
+  suggestions      String   @default("[]")
+  calculatedAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, referenceMonth])
+  @@unique([userId, referenceMonth])
+}
+
+model BudgetSnapshot {
+  id                String   @id @default(cuid())
+  userId            String
+  month             String
+  totalIncome       Float
+  totalEssential    Float
+  totalInstallments Float
+  totalGoalAporte   Float
+  totalFree         Float
+  totalSpent        Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, month])
+}
