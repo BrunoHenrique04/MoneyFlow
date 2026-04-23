@@ -1,13 +1,12 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, ArrowLeftRight, Building2, Tag, Target, BarChart3, Settings, Users } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Building2, Tag, Target, BarChart3, Settings, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const nav = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/transactions', label: 'Lançamentos', icon: ArrowLeftRight },
-  { href: '/debts', label: 'Dívidas', icon: Users },
   { href: '/accounts', label: 'Contas', icon: Building2 },
   { href: '/categories', label: 'Categorias', icon: Tag },
   { href: '/goals', label: 'Objetivos', icon: Target },
@@ -30,7 +29,7 @@ export function Sidebar() {
             href={href}
             className={cn(
               'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
-              pathname === href
+              pathname === href || (href === '/transactions' && pathname === '/debts')
                 ? 'bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}

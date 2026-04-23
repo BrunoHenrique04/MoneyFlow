@@ -2,10 +2,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? 'dev-secret-key'
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const hasBody = options.body != null
   const res = await fetch(`${API_URL}/api/v1${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       'X-API-Key': API_KEY,
       ...options.headers,
     },

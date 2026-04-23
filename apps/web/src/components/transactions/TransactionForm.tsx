@@ -28,6 +28,16 @@ const schema = z.discriminatedUnion('type', [
     categoryId: z.string().min(1),
     utilityTag: z.enum(['ESSENTIAL', 'NON_ESSENTIAL', 'INVESTMENT']),
   }),
+  z.object({
+    type: z.literal('RECURRING'),
+    description: z.string().min(1),
+    amount: z.coerce.number().positive(),
+    accountId: z.string().min(1),
+    categoryId: z.string().min(1),
+    utilityTag: z.enum(['ESSENTIAL', 'NON_ESSENTIAL', 'INVESTMENT']),
+    firstDueDate: z.string().min(1),
+    recurrenceMonths: z.coerce.number().int().min(1),
+  }),
 ])
 
 type FormData = z.infer<typeof schema>
@@ -49,13 +59,17 @@ export function TransactionForm({ onSuccess }: Props) {
   const type = watch('type')
 
   const onSubmit = (data: FormData) => {
-    const payload = type === 'SINGLE'
-      ? { ...data, dueDate: new Date((data as { dueDate: string }).dueDate).toISOString() }
-      : { ...data, firstDueDate: new Date((data as { firstDueDate: string }).firstDueDate).toISOString() }
+    let payload: Parameters<typeof create.mutate>[0]
 
-    create.mutate(payload as Parameters<typeof create.mutate>[0], {
-      onSuccess: () => onSuccess?.(),
-    })
+    if (data.type === 'SINGLE') {
+      payload = { ...data, dueDate: new Date(data.dueDate).toISOString() }
+    } else if (data.type === 'INSTALLMENT') {
+      payload = { ...data, firstDueDate: new Date(data.firstDueDate).toISOString() }
+    } else {
+      payload = { ...data, firstDueDate: new Date(data.firstDueDate).toISOString() }
+    }
+
+    create.mutate(payload, { onSuccess: () => onSuccess?.() })
   }
 
   return (
@@ -66,7 +80,13 @@ export function TransactionForm({ onSuccess }: Props) {
           <select {...register('type')} className="border border-border rounded-md px-3 py-2 bg-background text-sm">
             <option value="SINGLE">Único</option>
             <option value="INSTALLMENT">Parcelado</option>
+            <option value="RECURRING">Recorrente (N meses)</option>
           </select>
+          <span className="text-xs text-muted-foreground mt-0.5">
+            {type === 'RECURRING'
+              ? 'Gera N transações mensais. Para conta fixa perpétua (luz, água), use Gastos Fixos nas Configurações.'
+              : null}
+          </span>
         </label>
 
         <label className="col-span-2 flex flex-col gap-1 text-sm">
@@ -75,7 +95,7 @@ export function TransactionForm({ onSuccess }: Props) {
           {errors.description && <span className="text-destructive text-xs">{errors.description.message}</span>}
         </label>
 
-        {type === 'SINGLE' ? (
+        {type === 'SINGLE' && (
           <>
             <label className="flex flex-col gap-1 text-sm">
               Valor (R$)
@@ -86,7 +106,9 @@ export function TransactionForm({ onSuccess }: Props) {
               <input type="date" {...register('dueDate')} className="border border-border rounded-md px-3 py-2 text-sm" />
             </label>
           </>
-        ) : (
+        )}
+
+        {type === 'INSTALLMENT' && (
           <>
             <label className="flex flex-col gap-1 text-sm">
               Valor total (R$)
@@ -98,6 +120,23 @@ export function TransactionForm({ onSuccess }: Props) {
             </label>
             <label className="col-span-2 flex flex-col gap-1 text-sm">
               Primeira parcela
+              <input type="date" {...register('firstDueDate')} className="border border-border rounded-md px-3 py-2 text-sm" />
+            </label>
+          </>
+        )}
+
+        {type === 'RECURRING' && (
+          <>
+            <label className="flex flex-col gap-1 text-sm">
+              Valor mensal (R$)
+              <input type="number" step="0.01" {...register('amount')} className="border border-border rounded-md px-3 py-2 text-sm" />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              Meses de recorrência
+              <input type="number" min="1" {...register('recurrenceMonths')} className="border border-border rounded-md px-3 py-2 text-sm" />
+            </label>
+            <label className="col-span-2 flex flex-col gap-1 text-sm">
+              Primeira data
               <input type="date" {...register('firstDueDate')} className="border border-border rounded-md px-3 py-2 text-sm" />
             </label>
           </>

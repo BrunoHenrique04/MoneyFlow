@@ -17,6 +17,7 @@ export const BUDGET_COLORS: Record<string, string> = {
   essentialExpenses: '#15803d',
   goalAporte:        '#16a34a',
   nonEssential:      '#22c55e',
+  singleExpenses:    '#f59e0b',
   freeBudget:        '#bbf7d0',
 }
 
@@ -26,7 +27,20 @@ export const BUDGET_LABELS: Record<string, string> = {
   essentialExpenses: 'Essencial',
   goalAporte:        'Metas',
   nonEssential:      'Não essencial',
+  singleExpenses:    'Únicos',
   freeBudget:        'Livre',
+}
+
+export function commitmentColor(pct: number): string {
+  if (pct <= 50) return 'text-yellow-500'
+  if (pct <= 80) return 'text-orange-500'
+  return 'text-red-500'
+}
+
+export function commitmentBorderColor(pct: number): string {
+  if (pct <= 50) return 'border-yellow-400'
+  if (pct <= 80) return 'border-orange-400'
+  return 'border-red-400'
 }
 
 export function commitRatioColor(ratio: number): string {

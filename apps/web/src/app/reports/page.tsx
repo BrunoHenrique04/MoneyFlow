@@ -72,6 +72,12 @@ export default function ReportsPage() {
 
   const currentMonthData = timeline.find((m) => m.isCurrent)
 
+  // "Únicos": transactions that are not recurring, not installment, not fixed, not income
+  const PERSISTENT_TYPES = ['RECURRING', 'INSTALLMENT', 'FIXED']
+  const singleExpenses = (report?.transactions ?? [])
+    .filter((t) => !PERSISTENT_TYPES.includes(t.type) && t.type !== 'INCOME')
+    .reduce((s, t) => s + t.amount, 0)
+
   function renderChart() {
     if (preset === 'donut') {
       if (reportLoading) return <ChartSkeleton />
@@ -89,6 +95,7 @@ export default function ReportsPage() {
           goalAporte={layers.goalAporte}
           nonEssential={layers.nonEssential}
           freeBudget={layers.freeBudget}
+          singleExpenses={singleExpenses}
         />
       )
     }

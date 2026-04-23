@@ -30,6 +30,7 @@ export function calcBudgetLayers(
   const fixed = active.filter(
     (t) =>
       t.type === 'RECURRING' ||
+      t.type === 'FIXED' ||
       t.category.categoryType === 'FIXED',
   )
   const fixedIds = new Set(fixed.map((t) => t.id))

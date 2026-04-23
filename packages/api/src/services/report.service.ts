@@ -40,11 +40,13 @@ export async function getMonthlyReport(month: string = currentMonth()) {
     }
     byCategoryMap.get(catKey)!.amount += t.amount
 
-    const accKey = t.accountId
-    if (!byAccountMap.has(accKey)) {
-      byAccountMap.set(accKey, { accountId: accKey, name: t.account.name, amount: 0 })
+    if (t.accountId && t.account) {
+      const accKey = t.accountId
+      if (!byAccountMap.has(accKey)) {
+        byAccountMap.set(accKey, { accountId: accKey, name: t.account.name, amount: 0 })
+      }
+      byAccountMap.get(accKey)!.amount += t.amount
     }
-    byAccountMap.get(accKey)!.amount += t.amount
   }
 
   const byCategory = [...byCategoryMap.values()].map((c) => ({

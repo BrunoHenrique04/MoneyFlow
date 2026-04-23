@@ -18,7 +18,15 @@ export async function categoryRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string }
     const parsed = UpdateCategorySchema.safeParse(req.body)
     if (!parsed.success) return fail(reply, 'VALIDATION_ERROR', parsed.error.message, 400)
-    return ok(reply, await categoryService.updateCategory(id, parsed.data))
+    try {
+      return ok(reply, await categoryService.updateCategory(id, parsed.data))
+    } catch (e: unknown) {
+      const err = e as { code?: string; message: string }
+      if (err.code === 'CANNOT_EDIT_DEFAULT_CATEGORY') {
+        return fail(reply, 'FORBIDDEN', err.message, 403)
+      }
+      throw e
+    }
   })
 
   app.delete('/categories/:id', async (req, reply) => {
@@ -28,8 +36,8 @@ export async function categoryRoutes(app: FastifyInstance) {
       return ok(reply, { deleted: true })
     } catch (e: unknown) {
       const err = e as { code?: string; message: string }
-      if (err.code === 'CATEGORY_HAS_TRANSACTIONS') {
-        return fail(reply, 'CONFLICT', err.message, 409)
+      if (err.code === 'CANNOT_DELETE_DEFAULT_CATEGORY') {
+        return fail(reply, 'FORBIDDEN', err.message, 403)
       }
       throw e
     }

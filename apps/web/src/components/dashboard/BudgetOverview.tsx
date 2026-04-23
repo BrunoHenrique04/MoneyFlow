@@ -1,7 +1,9 @@
 'use client'
-import { useRecommendation, useUser } from '@/hooks/useReports'
+import { useRecommendation, useUser, useMonthlyReport } from '@/hooks/useReports'
+import { useUIStore } from '@/store/ui.store'
 import { Card, CardTitle, CardValue } from '@/components/ui/card'
 import { formatBRL } from '@/lib/utils'
+import { commitmentColor, commitmentBorderColor } from '@/lib/chartColors'
 import { AlertTriangle, Lightbulb } from 'lucide-react'
 
 interface RecData {
@@ -12,9 +14,18 @@ interface RecData {
   suggestions: string[]
 }
 
+interface ReportTx {
+  amount: number
+  type: string
+}
+
+const PERSISTENT_TYPES = ['RECURRING', 'INSTALLMENT', 'FIXED']
+
 export function BudgetOverview() {
+  const { selectedMonth } = useUIStore()
   const { data: rec } = useRecommendation()
   const { data: user } = useUser()
+  const { data: reportRaw } = useMonthlyReport(selectedMonth)
 
   if (!rec || !user) {
     return (
@@ -32,7 +43,13 @@ export function BudgetOverview() {
   const recData = rec as RecData
   const userData = user as { monthlyIncome: number }
   const income = userData.monthlyIncome
-  const committed = recData.essentialBudget + recData.investmentBudget
+
+  // Actual spending from monthly report (pending + paid, no income, no cancelled)
+  const reportTxs: ReportTx[] = (reportRaw as { transactions?: ReportTx[] } | undefined)?.transactions ?? []
+  const expenseTxs = reportTxs.filter((t) => t.type !== 'INCOME')
+  const committed = expenseTxs.reduce((s, t) => s + t.amount, 0)
+  const persistentes = expenseTxs.filter((t) => PERSISTENT_TYPES.includes(t.type)).reduce((s, t) => s + t.amount, 0)
+  const unicos = expenseTxs.filter((t) => !PERSISTENT_TYPES.includes(t.type)).reduce((s, t) => s + t.amount, 0)
   const commitPct = income > 0 ? Math.round((committed / income) * 100) : 0
 
   return (
@@ -43,13 +60,26 @@ export function BudgetOverview() {
           <CardTitle>Renda</CardTitle>
           <CardValue className="text-foreground">{formatBRL(income)}</CardValue>
         </Card>
-        <Card>
+
+        {/* Comprometido — dynamic color + breakdown footer */}
+        <Card className={`border-2 ${commitmentBorderColor(commitPct)}`}>
           <CardTitle>Comprometido</CardTitle>
-          <CardValue className="text-orange-500">{formatBRL(committed)}</CardValue>
+          <CardValue className={commitmentColor(commitPct)}>{formatBRL(committed)}</CardValue>
           {income > 0 && (
-            <p className="text-xs text-muted-foreground mt-1">{commitPct}% da renda</p>
+            <p className={`text-xs font-semibold mt-1 ${commitmentColor(commitPct)}`}>{commitPct}% da renda</p>
           )}
+          <div className="mt-2 pt-2 border-t border-border space-y-0.5">
+            <p className="text-xs text-muted-foreground flex justify-between">
+              <span>Persistentes</span>
+              <span className="tabular-nums font-medium">{formatBRL(persistentes)}</span>
+            </p>
+            <p className="text-xs text-muted-foreground flex justify-between">
+              <span>Únicos</span>
+              <span className="tabular-nums font-medium">{formatBRL(unicos)}</span>
+            </p>
+          </div>
         </Card>
+
         <Card>
           <CardTitle>Metas</CardTitle>
           <CardValue className="text-blue-500">{formatBRL(recData.investmentBudget)}</CardValue>

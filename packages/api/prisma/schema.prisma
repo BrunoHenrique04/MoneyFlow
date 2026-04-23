@@ -17,15 +17,16 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  accounts          Account[]
-  categories        Category[]
-  transactions      Transaction[]
-  installmentGroups InstallmentGroup[]
-  goals             Goal[]
-  recommendations   Recommendation[]
-  budgetSnapshots   BudgetSnapshot[]
-  categoryLimits    CategoryLimit[]
-  debts             Debt[]
+  accounts             Account[]
+  categories           Category[]
+  transactions         Transaction[]
+  installmentGroups    InstallmentGroup[]
+  goals                Goal[]
+  recommendations      Recommendation[]
+  budgetSnapshots      BudgetSnapshot[]
+  categoryLimits       CategoryLimit[]
+  debts                Debt[]
+  recurringTemplates   RecurringTemplate[]
 }
 
 model Account {
@@ -39,8 +40,9 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user         User          @relation(fields: [userId], references: [id])
-  transactions Transaction[]
+  user               User                @relation(fields: [userId], references: [id])
+  transactions       Transaction[]
+  recurringTemplates RecurringTemplate[]
 
   @@index([userId])
 }
@@ -55,9 +57,10 @@ model Category {
   categoryType String   @default("OTHER")  // FIXED | HEALTH | FOOD | TRANSPORT | LEISURE | EDUCATION | INVESTMENT | INCOME | OTHER
   createdAt    DateTime @default(now())
 
-  user           User            @relation(fields: [userId], references: [id])
-  transactions   Transaction[]
-  categoryLimits CategoryLimit[]
+  user               User                @relation(fields: [userId], references: [id])
+  transactions       Transaction[]
+  categoryLimits     CategoryLimit[]
+  recurringTemplates RecurringTemplate[]
 
   @@index([userId])
 }
@@ -90,31 +93,65 @@ model InstallmentGroup {
 }
 
 model Transaction {
-  id                 String            @id @default(cuid())
-  userId             String
-  accountId          String
-  categoryId         String
-  installmentGroupId String?
-  description        String
-  amount             Float
-  type               String
-  utilityTag         String
-  status             String            @default("PENDING")
-  dueDate            DateTime
-  paidAt             DateTime?
-  installmentNumber  Int?
-  notes              String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  id                  String    @id @default(cuid())
+  userId              String
+  accountId           String?                        // nullable: pode não ter conta definida
+  categoryId          String
+  installmentGroupId  String?
+  recurringTemplateId String?
+  description         String
+  amount              Float                          // valor do gasto / parcela (sempre positivo)
+  totalAmount         Float?                         // valor total da compra (para divisão entre pessoas)
+  pessoa              String?                        // nome da outra parte (dívida / compartilhado)
+  situacao            String?                        // PAGO | NAO_PAGO | RECEBER (para registros compartilhados)
+  type                String
+  utilityTag          String
+  status              String    @default("PENDING")  // PENDING | PAID | CANCELLED
+  dueDate             DateTime
+  paidAt              DateTime?
+  installmentNumber   Int?
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  user             User              @relation(fields: [userId], references: [id])
-  account          Account           @relation(fields: [accountId], references: [id])
-  category         Category          @relation(fields: [categoryId], references: [id])
-  installmentGroup InstallmentGroup? @relation(fields: [installmentGroupId], references: [id])
+  user              User               @relation(fields: [userId], references: [id])
+  account           Account?           @relation(fields: [accountId], references: [id])
+  category          Category           @relation(fields: [categoryId], references: [id])
+  installmentGroup  InstallmentGroup?  @relation(fields: [installmentGroupId], references: [id])
+  recurringTemplate RecurringTemplate? @relation(fields: [recurringTemplateId], references: [id], onDelete: SetNull)
 
   @@index([userId, dueDate])
   @@index([userId, status])
+  @@index([userId, pessoa])
   @@index([installmentGroupId])
+  @@index([recurringTemplateId])
+}
+
+// ─── Gasto Fixo / Recorrente Perpétuo ────────────────────────────────────────
+
+model RecurringTemplate {
+  id          String    @id @default(cuid())
+  userId      String
+  description String
+  amount      Float
+  accountId   String
+  categoryId  String
+  utilityTag  String                     // ESSENTIAL / NON_ESSENTIAL / INVESTMENT
+  dayOfMonth  Int                        // 1–28
+  startMonth  String                     // "YYYY-MM" primeiro mês
+  endMonth    String?                    // "YYYY-MM" último mês; null = perpétuo
+  isActive    Boolean   @default(true)
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id])
+  account      Account       @relation(fields: [accountId], references: [id])
+  category     Category      @relation(fields: [categoryId], references: [id])
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([userId, isActive])
 }
 
 model Goal {
