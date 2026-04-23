@@ -181,6 +181,8 @@ model Recommendation {
   freeBudget       Float
   alerts           String   @default("[]")
   suggestions      String   @default("[]")
+  leisureAvailable Float    @default(0)
+  leisureDetails   String   @default("{}")
   calculatedAt     DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])

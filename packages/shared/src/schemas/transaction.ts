@@ -67,6 +67,7 @@ export const CreateTransactionSchema = z.discriminatedUnion('type', [
 ])
 
 export const UpdateTransactionSchema = z.object({
+  type: z.enum(['SINGLE', 'INSTALLMENT', 'RECURRING', 'FIXED', 'INCOME', 'SHARED']).optional(),
   description: z.string().min(1).max(200).optional(),
   amount: z.number().optional(),
   totalAmount: z.number().positive().optional().nullable(),

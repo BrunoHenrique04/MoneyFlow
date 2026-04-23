@@ -132,6 +132,19 @@ export async function recalculate(userId: string, months: string[] = [currentMon
 
     const suggestions = generateSuggestions({ goals, layers, months: months.length })
 
+    // Leisure availability formula
+    const leisureSpent = transactions
+      .filter((t) => t.status !== 'CANCELLED' && t.type !== 'INCOME' && t.category.categoryType === 'LEISURE')
+      .reduce((s, t) => s + t.amount, 0)
+    const totalGoals = goals.length
+    const goalGap = goals.reduce((s, g) => s + Math.max(0, g.monthlyAporte - (g.allocatedAporte ?? 0)), 0)
+    const riskCount = goals.filter((g) => g.onTrackWarning).length
+    const riskRatio = totalGoals > 0 ? riskCount / totalGoals : 0
+    const goalPressure = Math.min(1, Math.max(0, 0.70 * (goalGap / Math.max(1, layers.income)) + 0.30 * riskRatio))
+    const leisureFactor = Math.max(0.15, 1 - 2.5 * goalPressure)
+    const leisureAvailable = Math.max(0, layers.freeBudget * leisureFactor - leisureSpent)
+    const leisureDetails = JSON.stringify({ leisureSpent, goalGap, goalPressure, leisureFactor, riskCount, totalGoals, freeBudget: layers.freeBudget })
+
     await prisma.recommendation.upsert({
       where: { userId_referenceMonth: { userId, referenceMonth: month } },
       create: {
@@ -142,6 +155,8 @@ export async function recalculate(userId: string, months: string[] = [currentMon
         freeBudget: layers.freeBudget,
         alerts: JSON.stringify(alerts),
         suggestions: JSON.stringify(suggestions),
+        leisureAvailable,
+        leisureDetails,
       },
       update: {
         essentialBudget: layers.fixedExpenses + layers.healthExpenses + layers.essentialExpenses,
@@ -149,10 +164,11 @@ export async function recalculate(userId: string, months: string[] = [currentMon
         freeBudget: layers.freeBudget,
         alerts: JSON.stringify(alerts),
         suggestions: JSON.stringify(suggestions),
+        leisureAvailable,
+        leisureDetails,
         calculatedAt: new Date(),
       },
     })
-
     const totalSpent = transactions
       .filter((t) => t.status !== 'CANCELLED')
       .reduce((s, t) => s + t.amount, 0)

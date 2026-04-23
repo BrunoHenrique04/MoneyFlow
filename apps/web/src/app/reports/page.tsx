@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { PieChart, BarChart3, List, Tag, Target, TrendingUp, LayoutGrid } from 'lucide-react'
+import { PieChart, BarChart3, List, Tag, Target, TrendingUp, LayoutGrid, X } from 'lucide-react'
 import { useMonthlyReport, useBudgetTimeline } from '@/hooks/useReports'
 import { useGoals } from '@/hooks/useGoals'
 import { useUIStore } from '@/store/ui.store'
@@ -34,21 +34,33 @@ const PRESETS: Preset[] = [
 
 const GROUPS = ['Mensal', 'Histórico', 'Objetivos']
 
+interface CategoryData {
+  categoryId: string
+  name: string
+  color: string
+  amount: number
+  percent: number
+}
+
+interface ReportTx {
+  id: string
+  description: string
+  amount: number
+  type: string
+  utilityTag: string
+  categoryName: string
+  categoryColor: string
+  categoryType: string
+  categoryId?: string
+  dueDate?: string
+}
+
 interface ReportData {
   totalIncome: number
   totalSpent: number
-  fixedExpenses?: number
-  installments?: number
-  essentialExpenses?: number
-  goalAporte?: number
-  nonEssential?: number
-  freeBudget?: number
-  byCategory: Array<{ categoryId: string; name: string; color: string; amount: number; percent: number }>
+  byCategory: CategoryData[]
   byUtility: { essential: number; nonEssential: number; investment: number }
-  transactions: Array<{
-    id: string; description: string; amount: number; type: string
-    utilityTag: string; categoryName: string; categoryColor: string; categoryType: string
-  }>
+  transactions: ReportTx[]
 }
 
 interface TimelineMonth {
@@ -61,6 +73,7 @@ interface TimelineMonth {
 export default function ReportsPage() {
   const { selectedMonth } = useUIStore()
   const [preset, setPreset] = useState<PresetId>('donut')
+  const [selectedCategory, setSelectedCategory] = useState<CategoryData | null>(null)
 
   const { data: reportRaw, isLoading: reportLoading } = useMonthlyReport(selectedMonth)
   const { data: timelineRaw, isLoading: timelineLoading } = useBudgetTimeline(9, 3)
@@ -68,15 +81,25 @@ export default function ReportsPage() {
 
   const report = reportRaw as ReportData | undefined
   const timeline = (timelineRaw as TimelineMonth[] | undefined) ?? []
-  const goals = (goalsRaw as ReportData['transactions'] | undefined) ?? []
 
   const currentMonthData = timeline.find((m) => m.isCurrent)
 
-  // "Únicos": transactions that are not recurring, not installment, not fixed, not income
   const PERSISTENT_TYPES = ['RECURRING', 'INSTALLMENT', 'FIXED']
   const singleExpenses = (report?.transactions ?? [])
     .filter((t) => !PERSISTENT_TYPES.includes(t.type) && t.type !== 'INCOME')
     .reduce((s, t) => s + t.amount, 0)
+
+  // Transactions for the selected category
+  const categoryTransactions = selectedCategory
+    ? (report?.transactions ?? []).filter((t) => t.categoryName === selectedCategory.name && t.type !== 'INCOME')
+    : []
+
+  const isCategoryPreset = preset === 'category-bar' || preset === 'category-radar'
+
+  function handlePresetChange(id: PresetId) {
+    setPreset(id)
+    setSelectedCategory(null)
+  }
 
   function renderChart() {
     if (preset === 'donut') {
@@ -106,7 +129,7 @@ export default function ReportsPage() {
       return <ExpenseItems transactions={report.transactions ?? []} mode={preset === 'items-list' ? 'list' : 'bars'} />
     }
 
-    if (preset === 'category-bar' || preset === 'category-radar') {
+    if (isCategoryPreset) {
       if (reportLoading) return <ChartSkeleton />
       if (!report) return <Empty />
       return (
@@ -114,6 +137,8 @@ export default function ReportsPage() {
           data={report.byCategory}
           mode={preset === 'category-bar' ? 'bar' : 'radar'}
           totalSpent={report.totalSpent}
+          selectedCategoryId={selectedCategory?.categoryId}
+          onCategorySelect={setSelectedCategory}
         />
       )
     }
@@ -157,7 +182,7 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {/* Preset selector grouped */}
+      {/* Preset selector */}
       <div className="space-y-3">
         {GROUPS.map((group) => {
           const groupPresets = PRESETS.filter((p) => p.group === group)
@@ -171,7 +196,7 @@ export default function ReportsPage() {
                   return (
                     <button
                       key={p.id}
-                      onClick={() => setPreset(p.id)}
+                      onClick={() => handlePresetChange(p.id)}
                       className={[
                         'flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium border transition-all duration-200',
                         active
@@ -201,6 +226,52 @@ export default function ReportsPage() {
         </div>
         {renderChart()}
       </div>
+
+      {/* Category detail panel — shown when a category is selected */}
+      {isCategoryPreset && selectedCategory && (
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm animate-scale-in">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedCategory.color || '#16a34a' }} />
+              <h2 className="font-semibold">{selectedCategory.name}</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                {selectedCategory.percent}% do total
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-bold tabular-nums">{formatBRL(selectedCategory.amount)}</span>
+              <button
+                onClick={() => setSelectedCategory(null)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {categoryTransactions.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">Nenhuma transação encontrada nesta categoria.</p>
+          ) : (
+            <div className="space-y-2">
+              {categoryTransactions.map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{tx.description}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{tx.type.toLowerCase()}</p>
+                  </div>
+                  <span className="text-sm font-semibold tabular-nums text-destructive ml-4">
+                    {formatBRL(tx.amount)}
+                  </span>
+                </div>
+              ))}
+              <div className="flex justify-between pt-2 text-sm font-bold">
+                <span>Total ({categoryTransactions.length} transações)</span>
+                <span className="tabular-nums">{formatBRL(selectedCategory.amount)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

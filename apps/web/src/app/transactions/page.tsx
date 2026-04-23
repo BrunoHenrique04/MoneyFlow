@@ -37,15 +37,32 @@ function tagColor(tag: string) {
   return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
 }
 
-function statusColor(status: string) {
+type UnifiedStatus = 'PAID' | 'PENDING' | 'RECEIVABLE'
+
+function getUnifiedStatus(tx: { status: string; situacao: string | null }): UnifiedStatus {
+  if (tx.status === 'PAID' || tx.situacao === 'PAGO') return 'PAID'
+  if (tx.situacao === 'RECEBER') return 'RECEIVABLE'
+  return 'PENDING'
+}
+
+function toLegacyStatus(status: UnifiedStatus): {
+  status: 'PENDING' | 'PAID'
+  situacao: 'NAO_PAGO' | 'PAGO' | 'RECEBER'
+} {
+  if (status === 'PAID') return { status: 'PAID', situacao: 'PAGO' }
+  if (status === 'RECEIVABLE') return { status: 'PENDING', situacao: 'RECEBER' }
+  return { status: 'PENDING', situacao: 'NAO_PAGO' }
+}
+
+function statusColor(status: UnifiedStatus) {
   if (status === 'PAID') return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-  if (status === 'CANCELLED') return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+  if (status === 'RECEIVABLE') return 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200'
   return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
 }
 
-function statusLabel(status: string) {
+function statusLabel(status: UnifiedStatus) {
   if (status === 'PAID') return 'Pago'
-  if (status === 'CANCELLED') return 'Cancelado'
+  if (status === 'RECEIVABLE') return 'A Receber'
   return 'Pendente'
 }
 
@@ -57,26 +74,13 @@ function typeLabel(type: string) {
   return m[type] ?? type
 }
 
-function situacaoLabel(s: string | null) {
-  if (s === 'PAGO') return 'Pago'
-  if (s === 'RECEBER') return 'A Receber'
-  if (s === 'NAO_PAGO') return 'Não Pago'
-  return ''
-}
-
-function situacaoColor(s: string | null) {
-  if (s === 'PAGO') return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-  if (s === 'RECEBER') return 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200'
-  if (s === 'NAO_PAGO') return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-  return ''
-}
-
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 
 function EditModal({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
   const { data: accounts } = useAccounts()
   const { data: categories } = useCategories()
   const update = useUpdateTransaction()
+  const [unifiedStatus, setUnifiedStatus] = useState<UnifiedStatus>(getUnifiedStatus(tx))
 
   const [form, setForm] = useState<UpdateTransactionInput>({
     description: tx.description,
@@ -87,16 +91,18 @@ function EditModal({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
     utilityTag: tx.utilityTag,
     dueDate: tx.dueDate.slice(0, 10),
     notes: tx.notes ?? undefined,
-    status: tx.status as 'PENDING' | 'PAID' | 'CANCELLED',
     pessoa: tx.pessoa ?? undefined,
-    situacao: (tx.situacao as 'PAGO' | 'NAO_PAGO' | 'RECEBER' | undefined) ?? undefined,
   })
 
   const set = (k: keyof typeof form, v: unknown) => setForm((p) => ({ ...p, [k]: v }))
 
   const handleSave = () => {
+    const legacy = toLegacyStatus(unifiedStatus)
     const payload: UpdateTransactionInput = {
       ...form,
+      status: legacy.status,
+      situacao: legacy.situacao,
+      paidAt: legacy.status === 'PAID' ? new Date().toISOString() : undefined,
       dueDate: form.dueDate ? new Date(form.dueDate as string).toISOString() : undefined,
     }
     update.mutate({ id: tx.id, data: payload }, { onSuccess: onClose })
@@ -151,27 +157,17 @@ function EditModal({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
           </label>
           <label className="flex flex-col gap-1">
             Status
-            <select value={form.status ?? ''} onChange={(e) => set('status', e.target.value as 'PENDING' | 'PAID' | 'CANCELLED')}
+            <select value={unifiedStatus} onChange={(e) => setUnifiedStatus(e.target.value as UnifiedStatus)}
               className="border border-border rounded-md px-3 py-2 bg-background">
               <option value="PENDING">Pendente</option>
               <option value="PAID">Pago</option>
-              <option value="CANCELLED">Cancelado</option>
+              <option value="RECEIVABLE">A Receber</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">
             Pessoa
             <input value={form.pessoa ?? ''} onChange={(e) => set('pessoa', e.target.value || undefined)}
               className="border border-border rounded-md px-3 py-2 bg-background" placeholder="Opcional" />
-          </label>
-          <label className="flex flex-col gap-1">
-            Situação
-            <select value={form.situacao ?? ''} onChange={(e) => set('situacao', (e.target.value as 'PAGO' | 'NAO_PAGO' | 'RECEBER') || undefined)}
-              className="border border-border rounded-md px-3 py-2 bg-background">
-              <option value="">—</option>
-              <option value="NAO_PAGO">Não Pago</option>
-              <option value="PAGO">Pago</option>
-              <option value="RECEBER">A Receber</option>
-            </select>
           </label>
           <label className="col-span-2 flex flex-col gap-1">
             Observações
@@ -210,7 +206,7 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
   const [notes, setNotes] = useState('')
   // Pessoa is the trigger: when filled, switches to SHARED mode automatically
   const [pessoa, setPessoa] = useState('')
-  const [situacao, setSituacao] = useState<'NAO_PAGO' | 'PAGO' | 'RECEBER'>('NAO_PAGO')
+  const [unifiedStatus, setUnifiedStatus] = useState<UnifiedStatus>('PENDING')
   // Extra fields for recurring template
   const [dayOfMonth, setDayOfMonth] = useState('10')
   const [startMonth, setStartMonth] = useState(new Date().toISOString().slice(0, 7))
@@ -247,6 +243,8 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
     if (!desc || !categoryId || !amount) return
 
     const isoDate = new Date(date).toISOString()
+    const normalizedStatus = !isShared && unifiedStatus === 'RECEIVABLE' ? 'PENDING' : unifiedStatus
+    const legacy = toLegacyStatus(normalizedStatus)
     const baseFields = {
       description: desc,
       categoryId,
@@ -254,7 +252,7 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
       utilityTag,
       notes: notes || null,
       pessoa: pessoa.trim() || null,
-      situacao: isShared ? situacao : null,
+      situacao: legacy.situacao,
     }
 
     if (isRecurring) {
@@ -293,7 +291,7 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
         utilityTag,
         notes: notes || null,
         pessoa: pessoa.trim(),
-        situacao,
+        situacao: legacy.situacao,
         totalAmount: totalAmountField ? parseFloat(totalAmountField) : null,
       }
     } else {
@@ -402,16 +400,22 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
             placeholder="Nome da outra parte (opcional)" />
         </label>
 
-        {/* Situação — appears only when Pessoa is filled */}
-        {isShared && (
+        {/* Status unificado */}
+        <label className="col-span-2 flex flex-col gap-1">
+          Status
+          <select value={unifiedStatus} onChange={(e) => setUnifiedStatus(e.target.value as UnifiedStatus)}
+            className="border border-border rounded-md px-3 py-2 bg-background">
+            <option value="PENDING">Pendente</option>
+            <option value="PAID">Pago</option>
+            {isShared && <option value="RECEIVABLE">A Receber</option>}
+          </select>
+        </label>
+
+        {!isShared && unifiedStatus === 'RECEIVABLE' && (
           <label className="col-span-2 flex flex-col gap-1">
-            Situação com {pessoa}
-            <select value={situacao} onChange={(e) => setSituacao(e.target.value as typeof situacao)}
-              className="border border-border rounded-md px-3 py-2 bg-background">
-              <option value="NAO_PAGO">Não Pago</option>
-              <option value="PAGO">Pago</option>
-              <option value="RECEBER">A Receber — {pessoa} me deve</option>
-            </select>
+            <span className="text-xs text-muted-foreground">
+              "A Receber" só está disponível quando uma pessoa é informada.
+            </span>
           </label>
         )}
 
@@ -508,6 +512,7 @@ function TxRow({
   const rowClass = isFuture
     ? 'opacity-50 italic border-b border-border hover:bg-muted/20'
     : 'border-b border-border hover:bg-muted/30 transition-colors'
+  const unifiedStatus = getUnifiedStatus(tx)
 
   return (
     <tr className={rowClass}>
@@ -533,11 +538,9 @@ function TxRow({
       </td>
       <td className="py-2 px-3 text-xs">{tx.pessoa ?? '—'}</td>
       <td className="py-2 px-3">
-        {tx.situacao ? (
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${situacaoColor(tx.situacao)}`}>
-            {situacaoLabel(tx.situacao)}
-          </span>
-        ) : '—'}
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${statusColor(unifiedStatus)}`}>
+          {statusLabel(unifiedStatus)}
+        </span>
       </td>
       <td className="py-2 px-3 text-xs text-muted-foreground">
         {tx.totalAmount ? fmtMoney(tx.totalAmount) : '—'}
@@ -547,8 +550,8 @@ function TxRow({
       </td>
       <td className="py-2 px-3">
         {!isFuture && (
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${statusColor(tx.status)}`}>
-            {statusLabel(tx.status)}
+          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${statusColor(unifiedStatus)}`}>
+            {statusLabel(unifiedStatus)}
           </span>
         )}
         {isFuture && (
@@ -560,7 +563,7 @@ function TxRow({
       <td className="py-2 px-3">
         {!isFuture && (
           <div className="flex items-center gap-1">
-            {tx.status === 'PENDING' && (
+            {unifiedStatus === 'PENDING' && (
               <button onClick={() => onPay(tx)} title="Marcar como pago"
                 className="p-1 rounded hover:bg-green-100 text-green-700 dark:hover:bg-green-900">
                 <CircleDollarSign size={15} />
@@ -591,9 +594,8 @@ export default function TransactionsPage() {
   const [showProjections, setShowProjections] = useState(true)
   const [pessoaFilter, setPessoaFilter] = useState('')
   const [accountFilter, setAccountFilter] = useState('')
-  const [situacaoFilter, setSituacaoFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'' | UnifiedStatus>('')
 
   const { data, isLoading } = useProjections(selectedMonth)
   const deleteMutation = useDeleteTransaction()
@@ -626,9 +628,8 @@ export default function TransactionsPage() {
     if (!showProjections && t.isFuture) return false
     if (pessoaFilter && t.pessoa !== pessoaFilter) return false
     if (accountFilter && (t.account?.id ?? '') !== accountFilter) return false
-    if (situacaoFilter && t.situacao !== situacaoFilter) return false
     if (typeFilter && t.type !== typeFilter) return false
-    if (statusFilter && !t.isFuture && t.status !== statusFilter) return false
+    if (statusFilter && !t.isFuture && getUnifiedStatus(t) !== statusFilter) return false
     return true
   })
 
@@ -637,7 +638,7 @@ export default function TransactionsPage() {
     .reduce((s, t) => s + t.amount, 0)
   const totalIncome = realItems.filter((t) => t.type === 'INCOME' && t.status !== 'CANCELLED')
     .reduce((s, t) => s + t.amount, 0)
-  const totalReceivable = realItems.filter((t) => t.situacao === 'RECEBER' && t.status !== 'CANCELLED')
+  const totalReceivable = realItems.filter((t) => getUnifiedStatus(t) === 'RECEIVABLE' && t.status !== 'CANCELLED')
     .reduce((s, t) => s + t.amount, 0)
 
   const pessoas = [...new Set(allItems.map((t) => t.pessoa).filter(Boolean))] as string[]
@@ -721,13 +722,6 @@ export default function TransactionsPage() {
           <option value="">Todas as pessoas</option>
           {pessoas.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select value={situacaoFilter} onChange={(e) => setSituacaoFilter(e.target.value)}
-          className="border border-border rounded-md px-2 py-1.5 bg-background text-sm">
-          <option value="">Todas situações</option>
-          <option value="NAO_PAGO">Não Pago</option>
-          <option value="PAGO">Pago</option>
-          <option value="RECEBER">A Receber</option>
-        </select>
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
           className="border border-border rounded-md px-2 py-1.5 bg-background text-sm">
           <option value="">Todos os tipos</option>
@@ -738,20 +732,20 @@ export default function TransactionsPage() {
           <option value="INCOME">Receita</option>
           <option value="SHARED">Compartilhado</option>
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as '' | UnifiedStatus)}
           className="border border-border rounded-md px-2 py-1.5 bg-background text-sm">
           <option value="">Todos os status</option>
           <option value="PENDING">Pendente</option>
           <option value="PAID">Pago</option>
-          <option value="CANCELLED">Cancelado</option>
+          <option value="RECEIVABLE">A Receber</option>
         </select>
         <button onClick={() => setShowProjections(!showProjections)}
           className="flex items-center gap-1.5 px-2 py-1.5 border border-border rounded-md bg-background text-sm hover:bg-muted transition-colors">
           {showProjections ? <Eye size={15} /> : <EyeOff size={15} />}
           Projeções
         </button>
-        {(accountFilter || pessoaFilter || situacaoFilter || typeFilter || statusFilter) && (
-          <button onClick={() => { setAccountFilter(''); setPessoaFilter(''); setSituacaoFilter(''); setTypeFilter(''); setStatusFilter('') }}
+        {(accountFilter || pessoaFilter || typeFilter || statusFilter) && (
+          <button onClick={() => { setAccountFilter(''); setPessoaFilter(''); setTypeFilter(''); setStatusFilter('') }}
             className="text-xs text-muted-foreground hover:text-foreground underline">
             Limpar filtros
           </button>
@@ -782,10 +776,10 @@ export default function TransactionsPage() {
                   <th className="py-2 px-3 text-left font-medium">
                     <span className="flex items-center gap-1"><Users size={13} />Pessoa</span>
                   </th>
-                  <th className="py-2 px-3 text-left font-medium">Situação</th>
+                  <th className="py-2 px-3 text-left font-medium">Status</th>
                   <th className="py-2 px-3 text-left font-medium">Vl. Total</th>
                   <th className="py-2 px-3 text-right font-medium">Valor</th>
-                  <th className="py-2 px-3 text-left font-medium">Status</th>
+                  <th className="py-2 px-3 text-left font-medium">Origem</th>
                   <th className="py-2 px-3 text-left font-medium">Ações</th>
                 </tr>
               </thead>
@@ -813,8 +807,8 @@ export default function TransactionsPage() {
           <div className="flex flex-wrap gap-3">
             {pessoas.map((pessoa) => {
               const txs = realItems.filter((t) => t.pessoa === pessoa && t.status !== 'CANCELLED')
-              const receber = txs.filter((t) => t.situacao === 'RECEBER').reduce((s, t) => s + t.amount, 0)
-              const aPagar = txs.filter((t) => t.situacao === 'NAO_PAGO').reduce((s, t) => s + t.amount, 0)
+              const receber = txs.filter((t) => getUnifiedStatus(t) === 'RECEIVABLE').reduce((s, t) => s + t.amount, 0)
+              const aPagar = txs.filter((t) => getUnifiedStatus(t) === 'PENDING').reduce((s, t) => s + t.amount, 0)
               const saldo = receber - aPagar
               return (
                 <div key={pessoa} className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2">

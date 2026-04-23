@@ -2,14 +2,27 @@
 import { useRecommendation, useUser, useMonthlyReport } from '@/hooks/useReports'
 import { useUIStore } from '@/store/ui.store'
 import { Card, CardTitle, CardValue } from '@/components/ui/card'
+import { InfoTooltip } from '@/components/ui/tooltip'
 import { formatBRL } from '@/lib/utils'
 import { commitmentColor, commitmentBorderColor } from '@/lib/chartColors'
 import { AlertTriangle, Lightbulb } from 'lucide-react'
+
+interface LeisureDetails {
+  leisureSpent: number
+  goalGap: number
+  goalPressure: number
+  leisureFactor: number
+  riskCount: number
+  totalGoals: number
+  freeBudget: number
+}
 
 interface RecData {
   essentialBudget: number
   investmentBudget: number
   freeBudget: number
+  leisureAvailable: number
+  leisureDetails: LeisureDetails
   alerts: string[]
   suggestions: string[]
 }
@@ -20,6 +33,15 @@ interface ReportTx {
 }
 
 const PERSISTENT_TYPES = ['RECURRING', 'INSTALLMENT', 'FIXED']
+
+function TooltipLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-2 mt-0.5">
+      <span>{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
+    </div>
+  )
+}
 
 export function BudgetOverview() {
   const { selectedMonth } = useUIStore()
@@ -43,8 +65,8 @@ export function BudgetOverview() {
   const recData = rec as RecData
   const userData = user as { monthlyIncome: number }
   const income = userData.monthlyIncome
+  const ld = recData.leisureDetails ?? {} as LeisureDetails
 
-  // Actual spending from monthly report (pending + paid, no income, no cancelled)
   const reportTxs: ReportTx[] = (reportRaw as { transactions?: ReportTx[] } | undefined)?.transactions ?? []
   const expenseTxs = reportTxs.filter((t) => t.type !== 'INCOME')
   const committed = expenseTxs.reduce((s, t) => s + t.amount, 0)
@@ -52,18 +74,36 @@ export function BudgetOverview() {
   const unicos = expenseTxs.filter((t) => !PERSISTENT_TYPES.includes(t.type)).reduce((s, t) => s + t.amount, 0)
   const commitPct = income > 0 ? Math.round((committed / income) * 100) : 0
 
+  const leisurePct = ld.freeBudget > 0 ? Math.round(((ld.leisureSpent ?? 0) / ld.freeBudget) * 100) : 0
+  const pressurePct = Math.round((ld.goalPressure ?? 0) * 100)
+  const factorPct = Math.round((ld.leisureFactor ?? 1) * 100)
+
   return (
     <div className="space-y-4">
       {/* Main cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        {/* Renda */}
         <Card>
-          <CardTitle>Renda</CardTitle>
+          <CardTitle className="flex items-center gap-1">
+            Renda
+            <InfoTooltip content="Sua renda mensal cadastrada no perfil. Altere em Configurações." />
+          </CardTitle>
           <CardValue className="text-foreground">{formatBRL(income)}</CardValue>
         </Card>
 
-        {/* Comprometido — dynamic color + breakdown footer */}
+        {/* Comprometido */}
         <Card className={`border-2 ${commitmentBorderColor(commitPct)}`}>
-          <CardTitle>Comprometido</CardTitle>
+          <CardTitle className="flex items-center gap-1">
+            Comprometido
+            <InfoTooltip content={
+              <div className="space-y-1">
+                <p>Total gasto no mês selecionado (fixos + parcelas + essenciais + únicos). Exclui receitas e cancelados.</p>
+                <TooltipLine label="Persistentes (fixos/parcelas)" value={formatBRL(persistentes)} />
+                <TooltipLine label="Únicos (avulsos)" value={formatBRL(unicos)} />
+              </div>
+            } />
+          </CardTitle>
           <CardValue className={commitmentColor(commitPct)}>{formatBRL(committed)}</CardValue>
           {income > 0 && (
             <p className={`text-xs font-semibold mt-1 ${commitmentColor(commitPct)}`}>{commitPct}% da renda</p>
@@ -80,12 +120,29 @@ export function BudgetOverview() {
           </div>
         </Card>
 
+        {/* Metas */}
         <Card>
-          <CardTitle>Metas</CardTitle>
+          <CardTitle className="flex items-center gap-1">
+            Metas
+            <InfoTooltip content="Valor alocado pelo Brain para aportar nas suas metas ativas neste mês, distribuído por prioridade." />
+          </CardTitle>
           <CardValue className="text-blue-500">{formatBRL(recData.investmentBudget)}</CardValue>
         </Card>
+
+        {/* Orçamento Livre */}
         <Card>
-          <CardTitle>Orçamento Livre</CardTitle>
+          <CardTitle className="flex items-center gap-1">
+            Orçamento Livre
+            <InfoTooltip content={
+              <div className="space-y-1">
+                <p>Renda − Comprometido − Metas. O que sobra depois de todos os compromissos.</p>
+                <TooltipLine label="Renda" value={formatBRL(income)} />
+                <TooltipLine label="− Essencial" value={formatBRL(recData.essentialBudget)} />
+                <TooltipLine label="− Metas" value={formatBRL(recData.investmentBudget)} />
+                <TooltipLine label="= Livre" value={formatBRL(recData.freeBudget)} />
+              </div>
+            } />
+          </CardTitle>
           <CardValue className={recData.freeBudget < 0 ? 'text-destructive' : 'text-green-500'}>
             {formatBRL(recData.freeBudget)}
           </CardValue>
@@ -96,6 +153,19 @@ export function BudgetOverview() {
           )}
         </Card>
       </div>
+
+      {/* Lazer card — full width below */}
+      <LeisureCard
+        leisureAvailable={recData.leisureAvailable ?? 0}
+        leisureSpent={ld.leisureSpent ?? 0}
+        freeBudget={ld.freeBudget ?? 0}
+        goalPressure={pressurePct}
+        leisureFactor={factorPct}
+        riskCount={ld.riskCount ?? 0}
+        totalGoals={ld.totalGoals ?? 0}
+        goalGap={ld.goalGap ?? 0}
+        leisurePct={leisurePct}
+      />
 
       {/* Progress bar */}
       {income > 0 && (
@@ -155,3 +225,105 @@ export function BudgetOverview() {
     </div>
   )
 }
+
+interface LeisureCardProps {
+  leisureAvailable: number
+  leisureSpent: number
+  freeBudget: number
+  goalPressure: number
+  leisureFactor: number
+  riskCount: number
+  totalGoals: number
+  goalGap: number
+  leisurePct: number
+}
+
+function LeisureCard({ leisureAvailable, leisureSpent, freeBudget, goalPressure, leisureFactor, riskCount, totalGoals, goalGap, leisurePct }: LeisureCardProps) {
+  const progressWidth = freeBudget > 0 ? Math.min(100, (leisureSpent / freeBudget) * leisureFactor) * 100 : 0
+  const isExhausted = leisureAvailable === 0
+
+  const penaltyLines: { label: string; value: string; warn?: boolean }[] = []
+  if (goalPressure > 0) {
+    penaltyLines.push({ label: 'Pressão das metas', value: `${goalPressure}%`, warn: goalPressure > 25 })
+  }
+  if (riskCount > 0) {
+    penaltyLines.push({ label: `Metas em risco`, value: `${riskCount}/${totalGoals}`, warn: true })
+  }
+  if (goalGap > 0) {
+    penaltyLines.push({ label: 'Gap de aporte', value: formatBRL(goalGap), warn: true })
+  }
+
+  return (
+    <Card className={isExhausted ? 'border-destructive/40' : 'border-emerald-500/30'}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <div className="flex items-center gap-1 mb-1">
+            <span className="text-sm font-medium text-muted-foreground">Disponível para Lazer</span>
+            <InfoTooltip
+              side="bottom"
+              content={
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-foreground mb-1">Como é calculado</p>
+                  <p>Orçamento livre × fator de lazer − já gasto em Lazer.</p>
+                  <div className="border-t border-border pt-1.5 mt-1.5 space-y-0.5">
+                    <TooltipLine label="Orçamento livre" value={formatBRL(freeBudget)} />
+                    <TooltipLine label="Fator de lazer" value={`${leisureFactor}%`} />
+                    <TooltipLine label="Já gasto em Lazer" value={`− ${formatBRL(leisureSpent)}`} />
+                  </div>
+                  {penaltyLines.length > 0 && (
+                    <div className="border-t border-border pt-1.5 mt-1.5">
+                      <p className="font-semibold text-foreground mb-0.5">Penalidades</p>
+                      {penaltyLines.map((l) => (
+                        <div key={l.label} className={`flex justify-between gap-2 ${l.warn ? 'text-orange-400' : ''}`}>
+                          <span>{l.label}</span>
+                          <span className="font-medium">{l.value}</span>
+                        </div>
+                      ))}
+                      <p className="mt-1 text-[10px] leading-tight opacity-70">
+                        Fator cai quando há metas atrasadas. Piso mínimo: 15% do orçamento livre.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              }
+            />
+          </div>
+          <p className={`text-2xl font-bold ${isExhausted ? 'text-destructive' : 'text-emerald-500'}`}>
+            {formatBRL(leisureAvailable)}
+          </p>
+          {leisureSpent > 0 && (
+            <p className="text-xs text-muted-foreground mt-0.5">{formatBRL(leisureSpent)} já gasto em lazer</p>
+          )}
+        </div>
+
+        {/* Progress arc */}
+        <div className="shrink-0 text-right">
+          <p className="text-xs text-muted-foreground">Fator</p>
+          <p className={`text-lg font-bold ${leisureFactor < 40 ? 'text-orange-500' : leisureFactor < 70 ? 'text-yellow-500' : 'text-emerald-500'}`}>
+            {leisureFactor}%
+          </p>
+          {penaltyLines.length > 0 && (
+            <p className="text-[10px] text-orange-400 mt-0.5">{penaltyLines.length} penalidade{penaltyLines.length > 1 ? 's' : ''}</p>
+          )}
+        </div>
+      </div>
+
+      {/* mini progress bar: spent vs available within the free budget slice */}
+      {freeBudget > 0 && (
+        <div className="mt-3">
+          <div className="flex h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`rounded-full transition-all ${isExhausted ? 'bg-destructive' : 'bg-emerald-400'}`}
+              style={{ width: `${progressWidth}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+            <span>Gasto</span>
+            <span>{leisurePct}% do disponível livre</span>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
