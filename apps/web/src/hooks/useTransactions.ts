@@ -3,23 +3,35 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { Transaction, CreateTransactionInput, UpdateTransactionInput } from '@moneyflow/shared'
 
-interface TransactionsResponse {
-  items: Transaction[]
-  total: number
-  summary: {
-    totalAmount: number
-    essential: number
-    nonEssential: number
-    investment: number
-  }
+export interface TransactionSummary {
+  totalAmount: number
+  essential: number
+  nonEssential: number
+  investment: number
+  receivable: number
+  porPessoa: { pessoa: string; saldo: number }[]
 }
 
-interface TransactionFilters {
+export interface TransactionsResponse {
+  items: Transaction[]
+  total: number
+  summary: TransactionSummary
+}
+
+export interface ProjectionsResponse {
+  items: (Transaction & { isFuture: boolean })[]
+  isPureProjection: boolean
+}
+
+export interface TransactionFilters {
   month?: string
   accountId?: string
   categoryId?: string
   type?: string
   status?: string
+  utilityTag?: string
+  pessoa?: string
+  situacao?: string
 }
 
 export function useTransactions(filters: TransactionFilters = {}) {
@@ -33,11 +45,21 @@ export function useTransactions(filters: TransactionFilters = {}) {
   })
 }
 
+export function useProjections(month: string) {
+  return useQuery<ProjectionsResponse>({
+    queryKey: ['transactions', 'projections', month],
+    queryFn: () => api.get(`/transactions/projections?month=${month}`),
+  })
+}
+
 export function useCreateTransaction() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateTransactionInput) => api.post('/transactions', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['transactions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 }
 
@@ -46,7 +68,10 @@ export function useUpdateTransaction() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateTransactionInput }) =>
       api.patch(`/transactions/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['transactions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 }
 
@@ -55,7 +80,10 @@ export function useDeleteTransaction() {
   return useMutation({
     mutationFn: ({ id, cancelFuture }: { id: string; cancelFuture?: boolean }) =>
       api.delete(`/transactions/${id}${cancelFuture ? '?cancelFuture=true' : ''}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['transactions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 }
 
@@ -67,6 +95,42 @@ export function usePayTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useImportTransactions() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+      const apiKey = process.env.NEXT_PUBLIC_API_KEY ?? 'dev-secret-key'
+      const res = await fetch(`${base}/api/v1/transactions/import`, {
+        method: 'POST',
+        body: form,
+        headers: { 'X-API-Key': apiKey },
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error?.message ?? 'Erro ao importar')
+      return json.data as { imported: number }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useMigrateDebts() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post('/transactions/migrate-debts', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })
 }

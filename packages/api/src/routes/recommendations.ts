@@ -19,6 +19,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
       ...rec,
       alerts: JSON.parse(rec.alerts as string),
       suggestions: JSON.parse(rec.suggestions as string),
+      leisureDetails: JSON.parse(rec.leisureDetails as string),
     })
   })
 

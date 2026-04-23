@@ -11,6 +11,7 @@ interface DonutBudgetProps {
   goalAporte: number
   nonEssential: number
   freeBudget: number
+  singleExpenses?: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,13 +26,14 @@ function CustomTooltip({ active, payload }: any) {
   )
 }
 
-export function DonutBudget({ income, fixedExpenses, installments, essentialExpenses, goalAporte, nonEssential, freeBudget }: DonutBudgetProps) {
+export function DonutBudget({ income, fixedExpenses, installments, essentialExpenses, goalAporte, nonEssential, freeBudget, singleExpenses }: DonutBudgetProps) {
   const segments = [
     { key: 'fixedExpenses',     value: fixedExpenses     },
     { key: 'installments',      value: installments      },
     { key: 'essentialExpenses', value: essentialExpenses },
     { key: 'goalAporte',        value: goalAporte        },
     { key: 'nonEssential',      value: nonEssential      },
+    { key: 'singleExpenses',    value: singleExpenses ?? 0 },
     { key: 'freeBudget',        value: Math.max(0, freeBudget) },
   ].filter((s) => s.value > 0).map((s) => ({
     name: BUDGET_LABELS[s.key],

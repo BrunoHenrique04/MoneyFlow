@@ -6,6 +6,8 @@ import {
 import { formatBRL } from '@/lib/utils'
 import { commitRatioColor, commitRatioLabel, BUDGET_COLORS, BUDGET_LABELS } from '@/lib/chartColors'
 
+const LAYER_ORDER = ['fixedExpenses', 'installments', 'essentialExpenses', 'goalAporte', 'nonEssential'] as const
+
 interface MonthData {
   month: string
   isFuture: boolean
@@ -72,7 +74,7 @@ function CustomTooltip({ active, payload, label }: any) {
   void label
 }
 
-const LAYERS = ['fixedExpenses', 'installments', 'essentialExpenses', 'goalAporte', 'nonEssential'] as const
+const LAYERS = LAYER_ORDER
 
 export function MonthTimeline({ data, stacked = true }: MonthTimelineProps) {
   if (!data.length) return <p className="text-muted-foreground text-sm text-center py-12">Sem dados.</p>
@@ -153,6 +155,53 @@ export function MonthTimeline({ data, stacked = true }: MonthTimelineProps) {
           Projeção
         </div>
       </div>
+
+      {/* Future months preview — stacked mode only */}
+      {stacked && (() => {
+        const futureMonths = data.filter((d) => d.isFuture)
+        if (!futureMonths.length) return null
+        return (
+          <div className="border-t border-border pt-4 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Previsão meses futuros</p>
+            {futureMonths.map((d) => {
+              const label = new Date(d.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+              const ratio = d.income > 0 ? (d.totalCommitted / d.income) * 100 : 0
+              return (
+                <div key={d.month} className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium capitalize">{label}</span>
+                    <span className="text-xs font-bold" style={{ color: commitRatioColor(ratio) }}>
+                      {ratio.toFixed(0)}% — {commitRatioLabel(ratio)}
+                    </span>
+                  </div>
+                  {/* stacked mini bar */}
+                  <div className="flex h-2.5 rounded-full overflow-hidden gap-px">
+                    {LAYERS.map((key) => {
+                      const val = d[key as keyof MonthData] as number
+                      const w = d.income > 0 ? (val / d.income) * 100 : 0
+                      return w > 0 ? (
+                        <div key={key} title={BUDGET_LABELS[key]} style={{ width: `${w}%`, backgroundColor: BUDGET_COLORS[key] }} />
+                      ) : null
+                    })}
+                  </div>
+                  {/* layer values */}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                    {LAYERS.filter((k) => (d[k as keyof MonthData] as number) > 0).map((k) => (
+                      <div key={k} className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: BUDGET_COLORS[k] }} />
+                          {BUDGET_LABELS[k]}
+                        </span>
+                        <span className="tabular-nums font-medium">{formatBRL(d[k as keyof MonthData] as number)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
     </div>
   )
 }

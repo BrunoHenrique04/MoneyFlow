@@ -1,5 +1,6 @@
 import type { CategoryType } from './schemas/category'
-export type TransactionType = 'SINGLE' | 'INSTALLMENT' | 'RECURRING' | 'INCOME'
+export type TransactionType = 'SINGLE' | 'INSTALLMENT' | 'RECURRING' | 'FIXED' | 'INCOME' | 'SHARED'
+export type Situacao = 'PAGO' | 'NAO_PAGO' | 'RECEBER'
 export type UtilityTag = 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 export type GoalPriority = 'HIGH' | 'MEDIUM' | 'LOW'
@@ -50,8 +51,12 @@ export interface Transaction {
   accountId: string
   categoryId: string
   installmentGroupId: string | null
+  recurringTemplateId: string | null
   description: string
   amount: number
+  totalAmount: number | null
+  pessoa: string | null
+  situacao: Situacao | null
   type: TransactionType
   utilityTag: UtilityTag
   status: TransactionStatus
@@ -63,6 +68,7 @@ export interface Transaction {
   updatedAt: string
   account?: Account
   category?: Category
+  isFuture?: boolean
 }
 
 export interface InstallmentGroup {
@@ -102,8 +108,6 @@ export interface Recommendation {
   calculatedAt: string
 }
 
-export type Situacao = 'PAGO' | 'NAO_PAGO' | 'RECEBER'
-
 export interface Debt {
   id: string
   userId: string
@@ -118,6 +122,25 @@ export interface Debt {
   observacoes: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface RecurringTemplate {
+  id: string
+  userId: string
+  description: string
+  amount: number
+  accountId: string
+  categoryId: string
+  utilityTag: UtilityTag
+  dayOfMonth: number
+  startMonth: string
+  endMonth: string | null
+  isActive: boolean
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+  account?: Account
+  category?: Category
 }
 
 export interface BudgetSnapshot {

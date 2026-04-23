@@ -17,6 +17,7 @@ const DEFAULT_CATEGORIES = [
   { name: 'Vestuário',    icon: 'shirt',       color: '#EC4899', categoryType: 'OTHER'      },
   { name: 'Investimento', icon: 'trending-up', color: '#22C55E', categoryType: 'INVESTMENT' },
   { name: 'Outros',       icon: 'tag',         color: '#6B7280', categoryType: 'OTHER'      },
+  { name: 'Não Definida', icon: 'help-circle', color: '#9CA3AF', categoryType: 'OTHER'      },
 ]
 
 async function main() {

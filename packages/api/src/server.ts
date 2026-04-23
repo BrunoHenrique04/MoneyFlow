@@ -11,6 +11,7 @@ import { recommendationRoutes } from './routes/recommendations'
 import { reportRoutes } from './routes/reports'
 import { settingsRoutes } from './routes/settings'
 import { debtRoutes } from './routes/debts'
+import { recurringRoutes } from './routes/recurring'
 
 const app = Fastify({ logger: true })
 
@@ -36,6 +37,7 @@ async function bootstrap() {
       await api.register(reportRoutes)
       await api.register(settingsRoutes)
       await api.register(debtRoutes)
+      await api.register(recurringRoutes)
     },
     { prefix: '/api/v1' },
   )
