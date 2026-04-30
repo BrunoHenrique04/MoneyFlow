@@ -24,10 +24,12 @@ export function useBudgetTimeline(future = 9, past = 3) {
   })
 }
 
-export function useRecommendation() {
+export function useRecommendation(month?: string) {
+  const endpoint = month ? `/recommendations/${month}` : '/recommendations/current'
   return useQuery({
-    queryKey: ['recommendations', 'current'],
-    queryFn: () => api.get('/recommendations/current'),
+    queryKey: ['recommendations', month ?? 'current'],
+    queryFn: () => api.get(endpoint),
+    retry: false,
   })
 }
 

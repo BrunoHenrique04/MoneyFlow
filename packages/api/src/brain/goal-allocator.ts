@@ -1,6 +1,24 @@
+import { differenceInMonths } from 'date-fns'
 import { GoalWithAllocation } from './types'
 
 const PRIORITY_WEIGHT: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 }
+
+export function computeNeededAporte(goal: GoalWithAllocation): number {
+  const { goalMode, targetAmount, savedAmount, targetDate, fixedMonthlyAporte } = goal
+
+  if (
+    goalMode === 'FREE_SAVING' ||
+    goalMode === 'FIXED_APORTE_DEADLINE' ||
+    goalMode === 'FIXED_APORTE_TARGET'
+  ) {
+    return fixedMonthlyAporte ?? 0
+  }
+
+  // DEADLINE_TARGET: dynamic based on remaining months
+  if (!targetAmount || !targetDate) return 0
+  const monthsLeft = Math.max(1, differenceInMonths(targetDate, new Date()))
+  return Math.max(0, (targetAmount - savedAmount) / monthsLeft)
+}
 
 export function distributeGoalAportes(
   goals: GoalWithAllocation[],
@@ -14,12 +32,14 @@ export function distributeGoalAportes(
   let total = 0
 
   for (const goal of sorted) {
-    const needed = goal.monthlyAporte
-    const allocated = Math.max(0, Math.min(needed, remaining))
+    const needed = computeNeededAporte(goal)
+    // already deposited this month reduces the reservation
+    const reservation = Math.max(0, needed - goal.depositedThisMonth)
+    const allocated = Math.max(0, Math.min(reservation, remaining))
     goal.allocatedAporte = allocated
     remaining -= allocated
     total += allocated
-    if (allocated < needed) goal.onTrackWarning = true
+    if (allocated < reservation) goal.onTrackWarning = true
   }
 
   return total

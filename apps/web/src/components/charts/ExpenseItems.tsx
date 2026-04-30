@@ -22,7 +22,6 @@ interface ExpenseItemsProps {
 const TYPE_LABEL: Record<string, string> = {
   SINGLE:      'Avulso',
   INSTALLMENT: 'Parcela',
-  RECURRING:   'Fixo',
   INCOME:      'Renda',
 }
 

@@ -32,6 +32,22 @@ export async function goalRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string }
     const parsed = GoalDepositSchema.safeParse(req.body)
     if (!parsed.success) return fail(reply, 'VALIDATION_ERROR', parsed.error.message, 400)
-    return ok(reply, await goalService.depositGoal(id, parsed.data.amount))
+    const { amount, month, note } = parsed.data
+    return ok(reply, await goalService.depositGoal(id, amount, month, note))
+  })
+
+  app.get('/goals/:id/deposits', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    return ok(reply, await goalService.getGoalDeposits(id))
+  })
+
+  app.patch('/goals/:id/pause', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    return ok(reply, await goalService.pauseGoal(id))
+  })
+
+  app.patch('/goals/:id/resume', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    return ok(reply, await goalService.resumeGoal(id))
   })
 }

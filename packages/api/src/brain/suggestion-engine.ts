@@ -13,8 +13,9 @@ export function generateSuggestions({ goals, layers, months }: SuggestionInput):
   const active = goals.filter((g) => g.status === 'ACTIVE')
 
   // ── Orçamento livre positivo: sugerir aporte extra nas metas ────────────────
+  const withDeadline = active.filter((g) => g.targetDate != null)
   if (freeBudget > 200 && active.length > 0) {
-    const nearest = [...active].sort((a, b) => a.targetDate.getTime() - b.targetDate.getTime())[0]
+    const nearest = withDeadline.sort((a, b) => a.targetDate!.getTime() - b.targetDate!.getTime())[0] ?? active[0]
     suggestions.push(
       `Você tem R$ ${freeBudget.toFixed(2)} de orçamento livre. Considere aportar R$ ${Math.floor(freeBudget * 0.5).toFixed(2)} extras na meta "${nearest.name}" para antecipar o prazo.`,
     )
@@ -25,8 +26,8 @@ export function generateSuggestions({ goals, layers, months }: SuggestionInput):
   }
 
   // ── Meta mais próxima do prazo ────────────────────────────────────────────
-  const nearest = [...active].sort((a, b) => a.targetDate.getTime() - b.targetDate.getTime())[0]
-  if (nearest) {
+  const nearest = [...withDeadline].sort((a, b) => a.targetDate!.getTime() - b.targetDate!.getTime())[0]
+  if (nearest && nearest.targetDate) {
     const monthsLeft = Math.max(0, differenceInMonths(nearest.targetDate, new Date()))
     if (monthsLeft <= 3) {
       suggestions.push(

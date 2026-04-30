@@ -84,7 +84,7 @@ export default function ReportsPage() {
 
   const currentMonthData = timeline.find((m) => m.isCurrent)
 
-  const PERSISTENT_TYPES = ['RECURRING', 'INSTALLMENT', 'FIXED']
+  const PERSISTENT_TYPES = ['INSTALLMENT', 'FIXED']
   const singleExpenses = (report?.transactions ?? [])
     .filter((t) => !PERSISTENT_TYPES.includes(t.type) && t.type !== 'INCOME')
     .reduce((s, t) => s + t.amount, 0)

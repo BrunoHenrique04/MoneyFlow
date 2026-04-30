@@ -10,15 +10,18 @@ export function useRecurringTemplates() {
   })
 }
 
+function invalidateAfterTemplateChange(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['recurring-templates'] })
+  qc.invalidateQueries({ queryKey: ['transactions'] })
+  qc.invalidateQueries({ queryKey: ['recommendations'] })
+  qc.invalidateQueries({ queryKey: ['reports'] })
+}
+
 export function useCreateRecurringTemplate() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateRecurringTemplateInput) => api.post('/recurring-templates', data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['recurring-templates'] })
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-      qc.invalidateQueries({ queryKey: ['recommendation'] })
-    },
+    onSuccess: () => invalidateAfterTemplateChange(qc),
   })
 }
 
@@ -27,7 +30,7 @@ export function useUpdateRecurringTemplate() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateRecurringTemplateInput }) =>
       api.patch(`/recurring-templates/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['recurring-templates'] }),
+    onSuccess: () => invalidateAfterTemplateChange(qc),
   })
 }
 
@@ -35,9 +38,6 @@ export function useDeactivateRecurringTemplate() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete(`/recurring-templates/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['recurring-templates'] })
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-    },
+    onSuccess: () => invalidateAfterTemplateChange(qc),
   })
 }

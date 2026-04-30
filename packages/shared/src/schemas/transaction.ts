@@ -28,14 +28,6 @@ const InstallmentTransactionSchema = z.object({
   ...sharedFields,
 })
 
-const RecurringTransactionSchema = z.object({
-  type: z.literal('RECURRING'),
-  amount: z.number().positive(),
-  firstDueDate: z.string().datetime(),
-  recurrenceMonths: z.number().int().min(1),
-  ...sharedFields,
-})
-
 const IncomeTransactionSchema = z.object({
   type: z.literal('INCOME'),
   amount: z.number().positive(),
@@ -61,13 +53,12 @@ const SharedTransactionSchema = z.object({
 export const CreateTransactionSchema = z.discriminatedUnion('type', [
   SingleTransactionSchema,
   InstallmentTransactionSchema,
-  RecurringTransactionSchema,
   IncomeTransactionSchema,
   SharedTransactionSchema,
 ])
 
 export const UpdateTransactionSchema = z.object({
-  type: z.enum(['SINGLE', 'INSTALLMENT', 'RECURRING', 'FIXED', 'INCOME', 'SHARED']).optional(),
+  type: z.enum(['SINGLE', 'INSTALLMENT', 'FIXED', 'INCOME', 'SHARED']).optional(),
   description: z.string().min(1).max(200).optional(),
   amount: z.number().optional(),
   totalAmount: z.number().positive().optional().nullable(),
@@ -80,6 +71,7 @@ export const UpdateTransactionSchema = z.object({
   paidAt: z.string().datetime().optional(),
   pessoa: z.string().max(100).optional().nullable(),
   situacao: z.enum(['PAGO', 'NAO_PAGO', 'RECEBER']).optional().nullable(),
+  scope: z.enum(['only_this', 'this_and_future']).optional(),
 })
 
 export const PayTransactionSchema = z.object({

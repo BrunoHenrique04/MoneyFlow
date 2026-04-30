@@ -14,6 +14,8 @@
     --primary-foreground: 0 0% 100%;
     --secondary: 140 35% 93%;
     --secondary-foreground: 138 55% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 138 55% 8%;
     --muted: 140 25% 94%;
     --muted-foreground: 140 14% 46%;
     --accent: 140 35% 91%;
@@ -35,6 +37,8 @@
     --primary-foreground: 0 0% 100%;
     --secondary: 138 25% 15%;
     --secondary-foreground: 138 20% 88%;
+    --popover: 138 28% 10%;
+    --popover-foreground: 138 20% 93%;
     --muted: 138 25% 15%;
     --muted-foreground: 140 16% 56%;
     --accent: 138 25% 15%;
@@ -53,6 +57,22 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+@layer base {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']),
+  textarea,
+  select {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border));
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
 }
 
 @keyframes slide-up {

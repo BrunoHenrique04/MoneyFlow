@@ -34,7 +34,6 @@ const statusLabel: Record<string, string> = {
 const typeLabel: Record<string, string> = {
   SINGLE: 'Único',
   INSTALLMENT: 'Parcela',
-  RECURRING: 'Recorrente',
   FIXED: 'Fixo',
   INCOME: 'Renda',
 }
@@ -50,38 +49,100 @@ function EditTransactionModal({
   const { data: categories } = useCategories()
   const { data: accounts } = useAccounts()
 
-  const [form, setForm] = useState<UpdateTransactionInput>({
+  const isInstallment = tx.type === 'INSTALLMENT'
+  const isFixed = tx.type === 'FIXED'
+  const isShared = tx.type === 'SHARED'
+  const totalInstallments = tx.installmentGroup?.totalInstallments ?? null
+  const isLastInstallment = isInstallment && tx.installmentNumber != null && totalInstallments != null && tx.installmentNumber >= totalInstallments
+
+  const [form, setForm] = useState({
     description: tx.description,
     amount: tx.amount,
     categoryId: tx.categoryId,
-    utilityTag: tx.utilityTag,
-    dueDate: tx.dueDate ? new Date(tx.dueDate).toISOString().slice(0, 10) : undefined,
-    notes: tx.notes ?? undefined,
-    status: tx.status,
+    utilityTag: tx.utilityTag as UpdateTransactionInput['utilityTag'],
+    dueDate: tx.dueDate ? new Date(tx.dueDate).toISOString().slice(0, 10) : '',
+    notes: tx.notes ?? '',
+    status: tx.status as UpdateTransactionInput['status'],
+    pessoa: tx.pessoa ?? '',
+    situacao: (tx.situacao ?? '') as UpdateTransactionInput['situacao'] | '',
+    scope: 'only_this' as 'only_this' | 'this_and_future',
   })
 
   const handleSave = () => {
     const payload: UpdateTransactionInput = {
-      ...form,
+      description: form.description,
+      amount: form.amount,
+      categoryId: form.categoryId,
+      utilityTag: form.utilityTag,
       dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
+      notes: form.notes || null,
+      status: form.status,
+      ...(isShared && {
+        pessoa: form.pessoa || null,
+        situacao: (form.situacao || null) as UpdateTransactionInput['situacao'],
+      }),
+      ...(isInstallment && { scope: form.scope }),
     }
     update.mutate({ id: tx.id, data: payload }, { onSuccess: onClose })
   }
+
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm(f => ({ ...f, [key]: value }))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-card border border-border rounded-xl p-6 w-full max-w-lg space-y-4 shadow-xl">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-base">Editar lançamento</h2>
+          <div>
+            <h2 className="font-semibold text-base">Editar lançamento</h2>
+            {isInstallment && tx.installmentNumber != null && totalInstallments != null && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Parcela {tx.installmentNumber} de {totalInstallments}
+              </p>
+            )}
+          </div>
           <Button variant="ghost" size="sm" onClick={onClose}><X size={16} /></Button>
         </div>
+
+        {isFixed && (
+          <div className="text-xs text-muted-foreground bg-muted rounded-md px-3 py-2">
+            Esta edição afeta apenas este mês. Para alterar permanentemente, edite o template em <strong>Configurações → Gastos Fixos</strong>.
+          </div>
+        )}
+
+        {isInstallment && !isLastInstallment && (
+          <div className="flex gap-3 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="scope"
+                value="only_this"
+                checked={form.scope === 'only_this'}
+                onChange={() => set('scope', 'only_this')}
+                className="accent-primary"
+              />
+              Só esta parcela
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="scope"
+                value="this_and_future"
+                checked={form.scope === 'this_and_future'}
+                onChange={() => set('scope', 'this_and_future')}
+                className="accent-primary"
+              />
+              Esta e as futuras
+            </label>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <label className="col-span-2 flex flex-col gap-1 text-sm">
             Descrição
             <input
-              value={form.description ?? ''}
-              onChange={e => setForm({ ...form, description: e.target.value })}
+              value={form.description}
+              onChange={e => set('description', e.target.value)}
               className="border border-border rounded-md px-3 py-2 text-sm"
             />
           </label>
@@ -91,8 +152,8 @@ function EditTransactionModal({
             <input
               type="number"
               step="0.01"
-              value={form.amount ?? ''}
-              onChange={e => setForm({ ...form, amount: parseFloat(e.target.value) })}
+              value={form.amount}
+              onChange={e => set('amount', parseFloat(e.target.value))}
               className="border border-border rounded-md px-3 py-2 text-sm"
             />
           </label>
@@ -101,8 +162,8 @@ function EditTransactionModal({
             Data
             <input
               type="date"
-              value={form.dueDate ?? ''}
-              onChange={e => setForm({ ...form, dueDate: e.target.value })}
+              value={form.dueDate}
+              onChange={e => set('dueDate', e.target.value)}
               className="border border-border rounded-md px-3 py-2 text-sm"
             />
           </label>
@@ -110,8 +171,8 @@ function EditTransactionModal({
           <label className="flex flex-col gap-1 text-sm">
             Categoria
             <select
-              value={form.categoryId ?? ''}
-              onChange={e => setForm({ ...form, categoryId: e.target.value })}
+              value={form.categoryId}
+              onChange={e => set('categoryId', e.target.value)}
               className="border border-border rounded-md px-3 py-2 bg-background text-sm"
             >
               {categories?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -122,7 +183,7 @@ function EditTransactionModal({
             Tag
             <select
               value={form.utilityTag ?? ''}
-              onChange={e => setForm({ ...form, utilityTag: e.target.value as UpdateTransactionInput['utilityTag'] })}
+              onChange={e => set('utilityTag', e.target.value as UpdateTransactionInput['utilityTag'])}
               className="border border-border rounded-md px-3 py-2 bg-background text-sm"
             >
               <option value="ESSENTIAL">Essencial</option>
@@ -132,10 +193,10 @@ function EditTransactionModal({
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            Situação
+            Status
             <select
               value={form.status ?? ''}
-              onChange={e => setForm({ ...form, status: e.target.value as UpdateTransactionInput['status'] })}
+              onChange={e => set('status', e.target.value as UpdateTransactionInput['status'])}
               className="border border-border rounded-md px-3 py-2 bg-background text-sm"
             >
               <option value="PENDING">Pendente</option>
@@ -146,20 +207,44 @@ function EditTransactionModal({
 
           <label className="flex flex-col gap-1 text-sm">
             Conta
-            <select
-              value=""
+            <input
+              value={accounts?.find(a => a.id === tx.accountId)?.name ?? '—'}
               disabled
               className="border border-border rounded-md px-3 py-2 bg-muted text-sm text-muted-foreground"
-            >
-              <option>{accounts?.find(a => a.id === tx.accountId)?.name ?? 'Conta'}</option>
-            </select>
+            />
           </label>
+
+          {isShared && (
+            <>
+              <label className="flex flex-col gap-1 text-sm">
+                Pessoa
+                <input
+                  value={form.pessoa}
+                  onChange={e => set('pessoa', e.target.value)}
+                  className="border border-border rounded-md px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm">
+                Situação
+                <select
+                  value={form.situacao ?? ''}
+                  onChange={e => set('situacao', e.target.value as typeof form.situacao)}
+                  className="border border-border rounded-md px-3 py-2 bg-background text-sm"
+                >
+                  <option value="NAO_PAGO">Não pago</option>
+                  <option value="PAGO">Pago</option>
+                  <option value="RECEBER">A receber</option>
+                </select>
+              </label>
+            </>
+          )}
 
           <label className="col-span-2 flex flex-col gap-1 text-sm">
             Observações
             <textarea
-              value={form.notes ?? ''}
-              onChange={e => setForm({ ...form, notes: e.target.value })}
+              value={form.notes}
+              onChange={e => set('notes', e.target.value)}
               rows={2}
               className="border border-border rounded-md px-3 py-2 text-sm resize-none"
             />

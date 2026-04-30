@@ -52,14 +52,17 @@ export function useProjections(month: string) {
   })
 }
 
+function invalidateBudget(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['transactions'] })
+  qc.invalidateQueries({ queryKey: ['recommendations'] })
+  qc.invalidateQueries({ queryKey: ['reports'] })
+}
+
 export function useCreateTransaction() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateTransactionInput) => api.post('/transactions', data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    onSuccess: () => invalidateBudget(qc),
   })
 }
 
@@ -68,10 +71,7 @@ export function useUpdateTransaction() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateTransactionInput }) =>
       api.patch(`/transactions/${id}`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    onSuccess: () => invalidateBudget(qc),
   })
 }
 
@@ -80,10 +80,7 @@ export function useDeleteTransaction() {
   return useMutation({
     mutationFn: ({ id, cancelFuture }: { id: string; cancelFuture?: boolean }) =>
       api.delete(`/transactions/${id}${cancelFuture ? '?cancelFuture=true' : ''}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    onSuccess: () => invalidateBudget(qc),
   })
 }
 
@@ -93,9 +90,8 @@ export function usePayTransaction() {
     mutationFn: ({ id, paidAt }: { id: string; paidAt?: string }) =>
       api.patch(`/transactions/${id}/pay`, { paidAt }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateBudget(qc)
     },
   })
 }
@@ -117,9 +113,27 @@ export function useImportTransactions() {
       if (!res.ok) throw new Error(json?.error?.message ?? 'Erro ao importar')
       return json.data as { imported: number }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    onSuccess: () => invalidateBudget(qc),
+  })
+}
+
+export function useExportTransactions() {
+  return useMutation({
+    mutationFn: async (month?: string) => {
+      const base   = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+      const apiKey = process.env.NEXT_PUBLIC_API_KEY ?? 'dev-secret-key'
+      const qs     = month ? `?month=${month}` : ''
+      const res    = await fetch(`${base}/api/v1/transactions/export${qs}`, {
+        headers: { 'X-API-Key': apiKey },
+      })
+      if (!res.ok) throw new Error('Erro ao exportar')
+      const blob     = await res.blob()
+      const url      = URL.createObjectURL(blob)
+      const a        = document.createElement('a')
+      a.href         = url
+      a.download     = month ? `lancamentos-${month}.xlsx` : 'lancamentos.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
     },
   })
 }
@@ -128,9 +142,6 @@ export function useMigrateDebts() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => api.post('/transactions/migrate-debts', {}),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transactions'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    onSuccess: () => invalidateBudget(qc),
   })
 }

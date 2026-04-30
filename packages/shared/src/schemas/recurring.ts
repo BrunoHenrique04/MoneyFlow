@@ -3,6 +3,7 @@ import { z } from 'zod'
 const utilityTagEnum = z.enum(['ESSENTIAL', 'NON_ESSENTIAL', 'INVESTMENT'])
 
 export const CreateRecurringTemplateSchema = z.object({
+  type: z.enum(['FIXED', 'INCOME']).default('FIXED'),
   description: z.string().min(1).max(100),
   amount: z.number().positive(),
   accountId: z.string().cuid(),

@@ -44,6 +44,16 @@ export async function transactionRoutes(app: FastifyInstance) {
     }
   })
 
+  app.get('/transactions/export', async (req, reply) => {
+    const { month } = req.query as { month?: string }
+    const buffer = await txService.exportTransactions(month)
+    const filename = month ? `lancamentos-${month}.xlsx` : 'lancamentos.xlsx'
+    reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(buffer)
+  })
+
   app.post('/transactions/migrate-debts', async (req, reply) => {
     return ok(reply, await txService.migrateDebtsToTransactions())
   })

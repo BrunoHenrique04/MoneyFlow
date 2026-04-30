@@ -3,11 +3,11 @@ import { useState, useRef } from 'react'
 import { addMonths, subMonths, format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
-  ChevronLeft, ChevronRight, Plus, X, Upload, CheckCircle, AlertTriangle,
+  ChevronLeft, ChevronRight, Plus, X, Upload, Download, CheckCircle, AlertTriangle,
   Pencil, Trash2, CircleDollarSign, Users, Eye, EyeOff,
 } from 'lucide-react'
 import { useUIStore } from '@/store/ui.store'
-import { useProjections, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, usePayTransaction, useImportTransactions } from '@/hooks/useTransactions'
+import { useProjections, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, usePayTransaction, useImportTransactions, useExportTransactions } from '@/hooks/useTransactions'
 import { useCreateRecurringTemplate } from '@/hooks/useRecurring'
 import { useAccounts } from '@/hooks/useAccounts'
 import { useCategories } from '@/hooks/useCategories'
@@ -68,7 +68,7 @@ function statusLabel(status: UnifiedStatus) {
 
 function typeLabel(type: string) {
   const m: Record<string, string> = {
-    SINGLE: 'Único', INSTALLMENT: 'Parcela', RECURRING: 'Recorrente',
+    SINGLE: 'Único', INSTALLMENT: 'Parcela',
     FIXED: 'Fixo', INCOME: 'Receita', SHARED: 'Compartilhado',
   }
   return m[type] ?? type
@@ -76,151 +76,64 @@ function typeLabel(type: string) {
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 
-function EditModal({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
-  const { data: accounts } = useAccounts()
-  const { data: categories } = useCategories()
-  const update = useUpdateTransaction()
-  const [unifiedStatus, setUnifiedStatus] = useState<UnifiedStatus>(getUnifiedStatus(tx))
+// ─── New / Edit Transaction Form ─────────────────────────────────────────────
 
-  const [form, setForm] = useState<UpdateTransactionInput>({
-    description: tx.description,
-    amount: tx.amount,
-    totalAmount: tx.totalAmount ?? undefined,
-    categoryId: tx.categoryId,
-    accountId: tx.accountId ?? undefined,
-    utilityTag: tx.utilityTag,
-    dueDate: tx.dueDate.slice(0, 10),
-    notes: tx.notes ?? undefined,
-    pessoa: tx.pessoa ?? undefined,
-  })
-
-  const set = (k: keyof typeof form, v: unknown) => setForm((p) => ({ ...p, [k]: v }))
-
-  const handleSave = () => {
-    const legacy = toLegacyStatus(unifiedStatus)
-    const payload: UpdateTransactionInput = {
-      ...form,
-      status: legacy.status,
-      situacao: legacy.situacao,
-      paidAt: legacy.status === 'PAID' ? new Date().toISOString() : undefined,
-      dueDate: form.dueDate ? new Date(form.dueDate as string).toISOString() : undefined,
-    }
-    update.mutate({ id: tx.id, data: payload }, { onSuccess: onClose })
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <h2 className="font-semibold text-lg">Editar lançamento</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X size={20} /></button>
-        </div>
-        <div className="p-4 grid grid-cols-2 gap-3 text-sm">
-          <label className="col-span-2 flex flex-col gap-1">
-            Descrição
-            <input value={form.description ?? ''} onChange={(e) => set('description', e.target.value)}
-              className="border border-border rounded-md px-3 py-2 bg-background" />
-          </label>
-          <label className="flex flex-col gap-1">
-            Valor (R$)
-            <input type="number" step="0.01" value={form.amount ?? ''} onChange={(e) => set('amount', parseFloat(e.target.value))}
-              className="border border-border rounded-md px-3 py-2 bg-background" />
-          </label>
-          <label className="flex flex-col gap-1">
-            Data
-            <input type="date" value={(form.dueDate as string ?? '').slice(0, 10)} onChange={(e) => set('dueDate', e.target.value)}
-              className="border border-border rounded-md px-3 py-2 bg-background" />
-          </label>
-          <label className="flex flex-col gap-1">
-            Categoria
-            <select value={form.categoryId ?? ''} onChange={(e) => set('categoryId', e.target.value)}
-              className="border border-border rounded-md px-3 py-2 bg-background">
-              {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            Conta
-            <select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}
-              className="border border-border rounded-md px-3 py-2 bg-background">
-              <option value="">Sem conta</option>
-              {accounts?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            Tag
-            <select value={form.utilityTag ?? ''} onChange={(e) => set('utilityTag', e.target.value as 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT')}
-              className="border border-border rounded-md px-3 py-2 bg-background">
-              <option value="NON_ESSENTIAL">Não Essencial</option>
-              <option value="ESSENTIAL">Essencial</option>
-              <option value="INVESTMENT">Investimento</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            Status
-            <select value={unifiedStatus} onChange={(e) => setUnifiedStatus(e.target.value as UnifiedStatus)}
-              className="border border-border rounded-md px-3 py-2 bg-background">
-              <option value="PENDING">Pendente</option>
-              <option value="PAID">Pago</option>
-              <option value="RECEIVABLE">A Receber</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            Pessoa
-            <input value={form.pessoa ?? ''} onChange={(e) => set('pessoa', e.target.value || undefined)}
-              className="border border-border rounded-md px-3 py-2 bg-background" placeholder="Opcional" />
-          </label>
-          <label className="col-span-2 flex flex-col gap-1">
-            Observações
-            <textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value || undefined)} rows={2}
-              className="border border-border rounded-md px-3 py-2 bg-background resize-none" />
-          </label>
-        </div>
-        <div className="flex gap-2 p-4 border-t border-border">
-          <Button onClick={handleSave} disabled={update.isPending} className="flex-1">
-            {update.isPending ? 'Salvando...' : 'Salvar'}
-          </Button>
-          <Button variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── New Transaction Form ─────────────────────────────────────────────────────
-
-function NewTransactionForm({ onClose }: { onClose: () => void }) {
+function NewTransactionForm({ onClose, initialTx }: { onClose: () => void; initialTx?: Transaction }) {
   const { data: accounts } = useAccounts()
   const { data: categories } = useCategories()
   const create = useCreateTransaction()
+  const update = useUpdateTransaction()
   const createTemplate = useCreateRecurringTemplate()
 
-  const [desc, setDesc] = useState('')
-  const [amount, setAmount] = useState('')
-  const [totalAmountField, setTotalAmountField] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const isEditing = !!initialTx
+
+  // Derive initial type flags from the transaction being edited
+  const editType = initialTx?.type ?? null
+  const editIsIncome   = editType === 'INCOME'
+  const editIsInstallment = editType === 'INSTALLMENT'
+  const editIsFixed    = editType === 'FIXED'
+
+  const [desc, setDesc] = useState(initialTx?.description ?? '')
+  const [amount, setAmount] = useState(initialTx ? String(initialTx.amount) : '')
+  const [totalAmountField, setTotalAmountField] = useState(initialTx?.totalAmount ? String(initialTx.totalAmount) : '')
+  const [date, setDate] = useState(initialTx ? initialTx.dueDate.slice(0, 10) : new Date().toISOString().slice(0, 10))
   const [installments, setInstallments] = useState('1')
   const [isRecurring, setIsRecurring] = useState(false)
-  const [categoryId, setCategoryId] = useState('')
-  const [accountId, setAccountId] = useState('')
-  const [utilityTag, setUtilityTag] = useState<'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT'>('NON_ESSENTIAL')
-  const [notes, setNotes] = useState('')
-  // Pessoa is the trigger: when filled, switches to SHARED mode automatically
-  const [pessoa, setPessoa] = useState('')
-  const [unifiedStatus, setUnifiedStatus] = useState<UnifiedStatus>('PENDING')
+  const [categoryId, setCategoryId] = useState(initialTx?.categoryId ?? '')
+  const [accountId, setAccountId] = useState(initialTx?.accountId ?? '')
+  const [utilityTag, setUtilityTag] = useState<'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT'>(initialTx?.utilityTag as 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT' ?? 'NON_ESSENTIAL')
+  const [notes, setNotes] = useState(initialTx?.notes ?? '')
+  const [pessoa, setPessoa] = useState(initialTx?.pessoa ?? '')
+  const [unifiedStatus, setUnifiedStatus] = useState<UnifiedStatus>(initialTx ? getUnifiedStatus(initialTx) : 'PENDING')
   // Extra fields for recurring template
   const [dayOfMonth, setDayOfMonth] = useState('10')
   const [startMonth, setStartMonth] = useState(new Date().toISOString().slice(0, 7))
   const [endMonth, setEndMonth] = useState('')
+  const [isIncome, setIsIncome] = useState(editIsIncome)
+  // Scope for installment editing
+  const [scope, setScope] = useState<'only_this' | 'this_and_future'>('only_this')
 
-  const isShared = pessoa.trim().length > 0
+  const isShared = !isIncome && pessoa.trim().length > 0
   const numInstallments = Math.max(1, parseInt(installments) || 1)
-  const isInstallment = !isRecurring && numInstallments > 1
+  // When editing, installment mode is locked by the original type
+  const isInstallment = isEditing ? editIsInstallment : (!isRecurring && !isIncome && numInstallments > 1)
   const amt = parseFloat(amount) || 0
   const autoTotal = amt * numInstallments
   const computedTotal = totalAmountField ? parseFloat(totalAmountField) : autoTotal
 
-  const typeHint = isRecurring
-    ? '🔁 Gasto Fixo / Recorrente Perpétuo'
+  const totalInstallments = initialTx?.installmentGroup?.totalInstallments ?? null
+  const futureCount = (totalInstallments != null && initialTx?.installmentNumber != null)
+    ? totalInstallments - initialTx.installmentNumber
+    : 0
+
+  const typeHint = isEditing
+    ? editIsInstallment ? `📋 Parcelado — parcela ${initialTx!.installmentNumber} de ${totalInstallments ?? '?'}`
+    : editIsFixed ? '🔁 Gasto Fixo (este mês)'
+    : editIsIncome ? '💰 Receita / Entrada'
+    : isShared ? '🤝 Compartilhado / Dívida'
+    : '📌 Único'
+    : isIncome ? '💰 Receita / Entrada'
+    : isRecurring ? '🔁 Gasto Fixo / Recorrente Perpétuo'
     : isShared && isInstallment ? '🤝 Compartilhado · Parcelado'
     : isShared ? '🤝 Compartilhado / Dívida'
     : isInstallment ? '📋 Parcelado'
@@ -228,14 +141,21 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
 
   const handleToggleRecurring = () => {
     setIsRecurring((r) => {
-      if (!r) setInstallments('1')
+      if (!r) { setInstallments('1'); setIsIncome(false) }
       return !r
+    })
+  }
+
+  const handleToggleIncome = () => {
+    setIsIncome((v) => {
+      if (!v) { setIsRecurring(false); setInstallments('1'); setPessoa('') }
+      return !v
     })
   }
 
   const handleInstallmentsChange = (v: string) => {
     setInstallments(v)
-    if (parseInt(v) > 1) setIsRecurring(false)
+    if (parseInt(v) > 1) { setIsRecurring(false); setIsIncome(false) }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -243,6 +163,45 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
     if (!desc || !categoryId || !amount) return
 
     const isoDate = new Date(date).toISOString()
+
+    // ── EDIT MODE ──────────────────────────────────────────────────────────────
+    if (isEditing) {
+      const legacy = toLegacyStatus(unifiedStatus)
+      const payload: UpdateTransactionInput = {
+        description: desc,
+        amount: amt,
+        categoryId,
+        accountId: accountId || null,
+        utilityTag,
+        dueDate: isoDate,
+        notes: notes || null,
+        pessoa: pessoa.trim() || null,
+        status: legacy.status,
+        situacao: legacy.situacao,
+        paidAt: legacy.status === 'PAID' ? new Date().toISOString() : undefined,
+        ...(editIsInstallment && { scope }),
+      }
+      update.mutate({ id: initialTx!.id, data: payload }, { onSuccess: onClose })
+      return
+    }
+
+    // ── CREATE MODE ────────────────────────────────────────────────────────────
+    if (isIncome) {
+      create.mutate({
+        type: 'INCOME',
+        amount: amt,
+        dueDate: isoDate,
+        description: desc,
+        categoryId,
+        accountId: accountId || null,
+        utilityTag: 'NON_ESSENTIAL',
+        notes: notes || null,
+        pessoa: null,
+        situacao: null,
+      }, { onSuccess: onClose })
+      return
+    }
+
     const normalizedStatus = !isShared && unifiedStatus === 'RECEIVABLE' ? 'PENDING' : unifiedStatus
     const legacy = toLegacyStatus(normalizedStatus)
     const baseFields = {
@@ -258,6 +217,7 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
     if (isRecurring) {
       if (!accountId) { alert('Selecione uma conta para o gasto recorrente.'); return }
       createTemplate.mutate({
+        type: 'FIXED',
         description: desc,
         amount: amt,
         accountId,
@@ -301,19 +261,62 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
     create.mutate(payload, { onSuccess: onClose })
   }
 
-  const isPending = create.isPending || createTemplate.isPending
+  const isPending = create.isPending || createTemplate.isPending || update.isPending
 
   return (
     <form onSubmit={handleSubmit} className="bg-card border border-border rounded-xl p-4 space-y-4 text-sm">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-semibold">Novo lançamento</h2>
+          <h2 className="font-semibold">{isEditing ? 'Editar lançamento' : 'Novo lançamento'}</h2>
           <span className="text-xs text-muted-foreground">{typeHint}</span>
         </div>
         <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
           <X size={18} />
         </button>
       </div>
+
+      {/* Installment info + scope selector — edit mode only */}
+      {isEditing && editIsInstallment && (
+        <div className="rounded-md border border-border px-3 py-2 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">
+              Parcela {initialTx!.installmentNumber ?? '?'} de {totalInstallments ?? '?'}
+            </span>
+            {futureCount > 0 && (
+              <span className="text-xs text-muted-foreground">{futureCount} parcela{futureCount > 1 ? 's' : ''} restante{futureCount > 1 ? 's' : ''}</span>
+            )}
+          </div>
+          {futureCount > 0 && (
+            <>
+              <p className="text-xs text-muted-foreground">Aplicar alterações em:</p>
+              <div className="flex gap-4 text-sm">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="scope" value="only_this" checked={scope === 'only_this'}
+                    onChange={() => setScope('only_this')} className="accent-primary" />
+                  Só esta parcela
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="scope" value="this_and_future" checked={scope === 'this_and_future'}
+                    onChange={() => setScope('this_and_future')} className="accent-primary" />
+                  Esta e as {futureCount} seguintes
+                </label>
+              </div>
+              {scope === 'this_and_future' && (
+                <p className="text-xs text-muted-foreground">
+                  O <strong>dia</strong> do vencimento é propagado; cada parcela mantém seu mês.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* FIXED edit note */}
+      {isEditing && editIsFixed && (
+        <p className="text-xs text-muted-foreground bg-muted rounded-md px-3 py-2">
+          Edita só este mês. Para alterar permanentemente, edite o template em <strong>Configurações → Gastos Fixos</strong>.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         {/* Descrição */}
@@ -331,38 +334,56 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
             className="border border-border rounded-md px-3 py-2 bg-background" />
         </label>
         <label className="flex flex-col gap-1">
-          {isInstallment ? 'Primeira parcela' : 'Data'}
+          {isEditing && editIsInstallment
+            ? scope === 'this_and_future' ? 'Data (dia propagado)' : 'Data desta parcela'
+            : isInstallment ? 'Primeira parcela' : 'Data'}
           <input required type="date" value={date} onChange={(e) => setDate(e.target.value)}
             className="border border-border rounded-md px-3 py-2 bg-background" />
         </label>
 
-        {/* Nº parcelas + Recorrente toggle */}
-        <label className="flex flex-col gap-1">
-          <span className="flex items-center justify-between">
-            <span>Nº parcelas</span>
-            <button type="button" onClick={handleToggleRecurring}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground select-none">
-              <span className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${isRecurring ? 'bg-primary' : 'bg-muted border border-border'}`}>
-                <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${isRecurring ? 'translate-x-3' : 'translate-x-0.5'}`} />
-              </span>
-              Recorrente
-            </button>
-          </span>
-          <input type="number" min="1" value={installments}
-            onChange={(e) => handleInstallmentsChange(e.target.value)}
-            disabled={isRecurring}
-            className="border border-border rounded-md px-3 py-2 bg-background disabled:opacity-50" />
-          {isInstallment && amt > 0 && (
-            <span className="text-xs text-muted-foreground">
-              Total estimado: {autoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </span>
-          )}
-        </label>
-
-        {/* Valor total — shown for installment (override) or shared (optional) */}
-        {(isInstallment || isShared) && (
+        {/* Nº parcelas + toggles — hidden when editing (type is locked) */}
+        {!isEditing && !isIncome && (
           <label className="flex flex-col gap-1">
-            {isInstallment ? 'Valor total da compra (R$)' : 'Valor total da compra (R$)'}
+            <span className="flex items-center justify-between">
+              <span>Nº parcelas</span>
+              <button type="button" onClick={handleToggleRecurring}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground select-none">
+                <span className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${isRecurring ? 'bg-primary' : 'bg-muted border border-border'}`}>
+                  <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${isRecurring ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                </span>
+                Recorrente
+              </button>
+            </span>
+            <input type="number" min="1" value={installments}
+              onChange={(e) => handleInstallmentsChange(e.target.value)}
+              disabled={isRecurring}
+              className="border border-border rounded-md px-3 py-2 bg-background disabled:opacity-50" />
+            {isInstallment && amt > 0 && (
+              <span className="text-xs text-muted-foreground">
+                Total estimado: {autoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
+            )}
+          </label>
+        )}
+
+        {/* Receita toggle — hidden when editing */}
+        {!isEditing && (
+          <label className={`flex flex-col gap-1 ${isIncome ? 'col-span-1' : ''}`}>
+            <span className="text-xs text-muted-foreground">Tipo</span>
+            <button type="button" onClick={handleToggleIncome}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${isIncome ? 'border-green-500 bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' : 'border-border bg-background text-muted-foreground hover:text-foreground'}`}>
+              <span className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${isIncome ? 'bg-green-500' : 'bg-muted border border-border'}`}>
+                <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${isIncome ? 'translate-x-3' : 'translate-x-0.5'}`} />
+              </span>
+              💰 É uma receita / entrada
+            </button>
+          </label>
+        )}
+
+        {/* Valor total — shown for installment (override) or shared (optional); hidden when editing installment */}
+        {!isEditing && (isInstallment || isShared) && (
+          <label className="flex flex-col gap-1">
+            Valor total da compra (R$)
             <input type="number" step="0.01" value={totalAmountField}
               onChange={(e) => setTotalAmountField(e.target.value)}
               className="border border-border rounded-md px-3 py-2 bg-background"
@@ -370,8 +391,8 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
           </label>
         )}
 
-        {/* Recurring extra fields */}
-        {isRecurring && (
+        {/* Recurring extra fields — create only */}
+        {!isEditing && isRecurring && (
           <>
             <label className="flex flex-col gap-1">
               Dia do mês (1–28)
@@ -392,26 +413,32 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
           </>
         )}
 
-        {/* Pessoa — always visible; fills → SHARED mode */}
-        <label className="col-span-2 flex flex-col gap-1">
-          <span>Pessoa <span className="text-muted-foreground font-normal text-xs">— preencha para modo compartilhado/dívida</span></span>
-          <input value={pessoa} onChange={(e) => setPessoa(e.target.value)}
-            className="border border-border rounded-md px-3 py-2 bg-background"
-            placeholder="Nome da outra parte (opcional)" />
-        </label>
+        {/* Pessoa */}
+        {!isIncome && (
+          <label className="col-span-2 flex flex-col gap-1">
+            {isEditing
+              ? 'Pessoa'
+              : <span>Pessoa <span className="text-muted-foreground font-normal text-xs">— preencha para modo compartilhado/dívida</span></span>}
+            <input value={pessoa} onChange={(e) => setPessoa(e.target.value)}
+              className="border border-border rounded-md px-3 py-2 bg-background"
+              placeholder="Nome da outra parte (opcional)" />
+          </label>
+        )}
 
-        {/* Status unificado */}
-        <label className="col-span-2 flex flex-col gap-1">
-          Status
-          <select value={unifiedStatus} onChange={(e) => setUnifiedStatus(e.target.value as UnifiedStatus)}
-            className="border border-border rounded-md px-3 py-2 bg-background">
-            <option value="PENDING">Pendente</option>
-            <option value="PAID">Pago</option>
-            {isShared && <option value="RECEIVABLE">A Receber</option>}
-          </select>
-        </label>
+        {/* Status unificado — not shown for income */}
+        {!isIncome && (
+          <label className="col-span-2 flex flex-col gap-1">
+            Status
+            <select value={unifiedStatus} onChange={(e) => setUnifiedStatus(e.target.value as UnifiedStatus)}
+              className="border border-border rounded-md px-3 py-2 bg-background">
+              <option value="PENDING">Pendente</option>
+              <option value="PAID">Pago</option>
+              {(isShared || isEditing) && <option value="RECEIVABLE">A Receber</option>}
+            </select>
+          </label>
+        )}
 
-        {!isShared && unifiedStatus === 'RECEIVABLE' && (
+        {!isShared && !isIncome && unifiedStatus === 'RECEIVABLE' && (
           <label className="col-span-2 flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">
               "A Receber" só está disponível quando uma pessoa é informada.
@@ -437,16 +464,18 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
           </select>
         </label>
 
-        {/* Tag */}
-        <label className="col-span-2 flex flex-col gap-1">
-          Tag de utilidade
-          <select value={utilityTag} onChange={(e) => setUtilityTag(e.target.value as typeof utilityTag)}
-            className="border border-border rounded-md px-3 py-2 bg-background">
-            <option value="NON_ESSENTIAL">Não Essencial</option>
-            <option value="ESSENTIAL">Essencial</option>
-            <option value="INVESTMENT">Investimento</option>
-          </select>
-        </label>
+        {/* Tag — not shown for income */}
+        {!isIncome && (
+          <label className="col-span-2 flex flex-col gap-1">
+            Tag de utilidade
+            <select value={utilityTag} onChange={(e) => setUtilityTag(e.target.value as typeof utilityTag)}
+              className="border border-border rounded-md px-3 py-2 bg-background">
+              <option value="NON_ESSENTIAL">Não Essencial</option>
+              <option value="ESSENTIAL">Essencial</option>
+              <option value="INVESTMENT">Investimento</option>
+            </select>
+          </label>
+        )}
 
         {/* Notes */}
         <label className="col-span-2 flex flex-col gap-1">
@@ -457,7 +486,7 @@ function NewTransactionForm({ onClose }: { onClose: () => void }) {
       </div>
 
       <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? 'Salvando...' : isRecurring ? 'Criar gasto fixo recorrente' : 'Salvar lançamento'}
+        {isPending ? 'Salvando...' : isEditing ? 'Salvar alterações' : isRecurring ? 'Criar gasto fixo recorrente' : 'Salvar lançamento'}
       </Button>
     </form>
   )
@@ -520,7 +549,9 @@ function TxRow({
       <td className="py-2 px-3 text-sm">
         <span className="font-medium">{tx.description}</span>
         {tx.installmentNumber && tx.installmentGroupId && (
-          <span className="ml-1 text-xs text-muted-foreground">#{tx.installmentNumber}</span>
+          <span className="ml-1 text-xs text-muted-foreground">
+            {tx.installmentNumber}/{tx.installmentGroup?.totalInstallments ?? '?'}
+          </span>
         )}
         {isFuture && <span className="ml-1 text-xs text-muted-foreground">(projeção)</span>}
       </td>
@@ -596,10 +627,13 @@ export default function TransactionsPage() {
   const [accountFilter, setAccountFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | UnifiedStatus>('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   const { data, isLoading } = useProjections(selectedMonth)
+  const { data: categories } = useCategories()
   const deleteMutation = useDeleteTransaction()
   const payMutation = usePayTransaction()
+  const exportMutation = useExportTransactions()
 
   const prevMonth = () => {
     const [y, m] = selectedMonth.split('-').map(Number)
@@ -630,11 +664,14 @@ export default function TransactionsPage() {
     if (accountFilter && (t.account?.id ?? '') !== accountFilter) return false
     if (typeFilter && t.type !== typeFilter) return false
     if (statusFilter && !t.isFuture && getUnifiedStatus(t) !== statusFilter) return false
+    if (categoryFilter && t.categoryId !== categoryFilter) return false
     return true
   })
 
   const realItems = filtered.filter((t) => !t.isFuture)
-  const totalSpent = realItems.filter((t) => t.status !== 'CANCELLED' && t.type !== 'INCOME')
+  const isIncomeItem = (t: { type: string; situacao?: string | null }) =>
+    t.type === 'INCOME' || t.situacao === 'RECEBER'
+  const totalSpent = filtered.filter((t) => t.status !== 'CANCELLED' && !isIncomeItem(t))
     .reduce((s, t) => s + t.amount, 0)
   const totalIncome = realItems.filter((t) => t.type === 'INCOME' && t.status !== 'CANCELLED')
     .reduce((s, t) => s + t.amount, 0)
@@ -666,6 +703,14 @@ export default function TransactionsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Lançamentos</h1>
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => exportMutation.mutate(selectedMonth)}
+            disabled={exportMutation.isPending}
+          >
+            <Download size={15} className="mr-1" />
+            {exportMutation.isPending ? 'Exportando...' : 'Exportar XLSX'}
+          </Button>
           <ImportButton />
           <Button onClick={() => setShowForm(!showForm)} variant={showForm ? 'secondary' : 'primary'}>
             {showForm ? <><X size={15} className="mr-1" />Fechar</> : <><Plus size={15} className="mr-1" />Novo lançamento</>}
@@ -712,6 +757,13 @@ export default function TransactionsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}
+          className="border border-border rounded-md px-2 py-1.5 bg-background text-sm">
+          <option value="">Todas as categorias</option>
+          {(categories ?? []).map((c: { id: string; name: string }) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
         <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}
           className="border border-border rounded-md px-2 py-1.5 bg-background text-sm">
           <option value="">Todas as contas</option>
@@ -727,7 +779,6 @@ export default function TransactionsPage() {
           <option value="">Todos os tipos</option>
           <option value="SINGLE">Único</option>
           <option value="INSTALLMENT">Parcelado</option>
-          <option value="RECURRING">Recorrente</option>
           <option value="FIXED">Fixo</option>
           <option value="INCOME">Receita</option>
           <option value="SHARED">Compartilhado</option>
@@ -744,8 +795,8 @@ export default function TransactionsPage() {
           {showProjections ? <Eye size={15} /> : <EyeOff size={15} />}
           Projeções
         </button>
-        {(accountFilter || pessoaFilter || typeFilter || statusFilter) && (
-          <button onClick={() => { setAccountFilter(''); setPessoaFilter(''); setTypeFilter(''); setStatusFilter('') }}
+        {(accountFilter || pessoaFilter || typeFilter || statusFilter || categoryFilter) && (
+          <button onClick={() => { setAccountFilter(''); setPessoaFilter(''); setTypeFilter(''); setStatusFilter(''); setCategoryFilter('') }}
             className="text-xs text-muted-foreground hover:text-foreground underline">
             Limpar filtros
           </button>
@@ -824,7 +875,13 @@ export default function TransactionsPage() {
       )}
 
       {/* Edit Modal */}
-      {editTx && <EditModal tx={editTx} onClose={() => setEditTx(null)} />}
+      {editTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <NewTransactionForm initialTx={editTx} onClose={() => setEditTx(null)} />
+          </div>
+        </div>
+      )}
 
       {/* Delete confirm */}
       {deleteTx && (

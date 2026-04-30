@@ -1,5 +1,5 @@
 import { prisma } from '../prisma'
-import { distributeGoalAportes } from './goal-allocator'
+import { distributeGoalAportes, computeNeededAporte } from './goal-allocator'
 import { generateAlerts } from './alert-generator'
 import { generateSuggestions } from './suggestion-engine'
 import { GoalWithAllocation, TransactionWithCategory, BudgetLayers } from './types'
@@ -18,29 +18,40 @@ function sum(txs: TransactionWithCategory[]) {
   return txs.reduce((s, t) => s + t.amount, 0)
 }
 
+function isIncomeTransaction(t: TransactionWithCategory): boolean {
+  return t.type === 'INCOME' || t.situacao === 'RECEBER'
+}
+
 export function calcBudgetLayers(
-  income: number,
+  baseIncome: number,
   txs: TransactionWithCategory[],
   goals: GoalWithAllocation[],
   isCurrentMonth: boolean,
 ): BudgetLayers {
   const active = txs.filter((t) => t.status !== 'CANCELLED')
 
-  // Each transaction is counted in exactly ONE bucket (priority order)
-  const fixed = active.filter(
+  // Income transactions boost income for this month only — never counted as expense
+  const incomeTxs = active.filter(isIncomeTransaction)
+  const extraIncome = sum(incomeTxs)
+  const income = baseIncome + extraIncome
+
+  // Only expense transactions flow into budget buckets
+  const expenses = active.filter((t) => !isIncomeTransaction(t))
+
+  // Each expense is counted in exactly ONE bucket (priority order)
+  const fixed = expenses.filter(
     (t) =>
-      t.type === 'RECURRING' ||
       t.type === 'FIXED' ||
       t.category.categoryType === 'FIXED',
   )
   const fixedIds = new Set(fixed.map((t) => t.id))
 
-  const health = active.filter(
+  const health = expenses.filter(
     (t) => !fixedIds.has(t.id) && t.category.categoryType === 'HEALTH',
   )
   const healthIds = new Set(health.map((t) => t.id))
 
-  const installmentsOnly = active.filter(
+  const installmentsOnly = expenses.filter(
     (t) =>
       !fixedIds.has(t.id) &&
       !healthIds.has(t.id) &&
@@ -48,7 +59,7 @@ export function calcBudgetLayers(
   )
   const installIds = new Set(installmentsOnly.map((t) => t.id))
 
-  const essentialOnly = active.filter(
+  const essentialOnly = expenses.filter(
     (t) =>
       !fixedIds.has(t.id) &&
       !healthIds.has(t.id) &&
@@ -56,7 +67,7 @@ export function calcBudgetLayers(
       t.utilityTag === 'ESSENTIAL',
   )
 
-  const nonEssential = active.filter(
+  const nonEssential = expenses.filter(
     (t) =>
       !fixedIds.has(t.id) &&
       !healthIds.has(t.id) &&
@@ -64,9 +75,9 @@ export function calcBudgetLayers(
       t.utilityTag === 'NON_ESSENTIAL',
   )
 
-  const fixedExpenses    = sum(fixed)
-  const healthExpenses   = sum(health)
-  const installments     = sum(installmentsOnly)
+  const fixedExpenses     = sum(fixed)
+  const healthExpenses    = sum(health)
+  const installments      = sum(installmentsOnly)
   const essentialExpenses = sum(essentialOnly)
   const nonEssentialTotal = sum(nonEssential)
 
@@ -82,6 +93,7 @@ export function calcBudgetLayers(
 
   return {
     income,
+    extraIncome,
     fixedExpenses,
     healthExpenses,
     essentialExpenses,
@@ -98,10 +110,24 @@ export async function recalculate(userId: string, months: string[] = [currentMon
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
 
   const rawGoals = await prisma.goal.findMany({ where: { userId, status: 'ACTIVE' } })
+  const month0 = currentMonth()
+  const depositsThisMonth = await prisma.goalDeposit.findMany({ where: { userId, month: month0 } })
+  const depositsByGoal = new Map(depositsThisMonth.map((d) => [d.goalId, d.amount]))
+
   const goals: GoalWithAllocation[] = rawGoals.map((g) => ({
     ...g,
-    targetDate: new Date(g.targetDate),
+    goalMode: g.goalMode,
+    targetAmount: g.targetAmount,
+    targetDate: g.targetDate ? new Date(g.targetDate) : null,
+    fixedMonthlyAporte: g.fixedMonthlyAporte,
+    depositedThisMonth: depositsByGoal.get(g.id) ?? 0,
   }))
+
+  // Persist computed monthlyAporte back to DB so frontend can display without recalculating
+  for (const goal of goals) {
+    const needed = computeNeededAporte(goal)
+    await prisma.goal.update({ where: { id: goal.id }, data: { monthlyAporte: +needed.toFixed(2) } })
+  }
 
   const limits = await prisma.categoryLimit.findMany({
     where: { userId },
@@ -110,29 +136,57 @@ export async function recalculate(userId: string, months: string[] = [currentMon
 
   for (const month of months) {
     const range = monthToDateRange(month)
+    const [y, mo] = month.split('-').map(Number)
 
     const transactions = await prisma.transaction.findMany({
       where: { userId, dueDate: range },
       include: { category: true },
     }) as TransactionWithCategory[]
 
+    // RecurringTemplate previews not yet confirmed as real transactions
+    const activeTemplates = await prisma.recurringTemplate.findMany({
+      where: {
+        userId,
+        isActive: true,
+        startMonth: { lte: month },
+        OR: [{ endMonth: null }, { endMonth: { gte: month } }],
+      },
+      include: { category: true },
+    })
+    const existingTemplateIds = new Set(transactions.map((t) => t.recurringTemplateId).filter(Boolean))
+    const previews: TransactionWithCategory[] = activeTemplates
+      .filter((tpl) => !existingTemplateIds.has(tpl.id))
+      .map((tpl) => ({
+        id: `preview-${tpl.id}`,
+        amount: tpl.amount,
+        type: tpl.type,
+        utilityTag: tpl.utilityTag,
+        categoryId: tpl.categoryId,
+        status: 'PENDING',
+        situacao: null,
+        recurringTemplateId: tpl.id,
+        category: tpl.category,
+      }))
+
+    const allTransactions = [...transactions, ...previews]
+
     const layers = calcBudgetLayers(
       user.monthlyIncome,
-      transactions,
+      allTransactions,
       goals,
       month === currentMonth(),
     )
 
     const alerts = generateAlerts({
       layers,
-      transactions,
+      transactions: allTransactions,
       goals,
       limits,
     })
 
     const suggestions = generateSuggestions({ goals, layers, months: months.length })
 
-    // Leisure availability formula
+    // Leisure availability formula — only real paid transactions count as spent
     const leisureSpent = transactions
       .filter((t) => t.status !== 'CANCELLED' && t.type !== 'INCOME' && t.category.categoryType === 'LEISURE')
       .reduce((s, t) => s + t.amount, 0)
@@ -150,7 +204,9 @@ export async function recalculate(userId: string, months: string[] = [currentMon
       create: {
         userId,
         referenceMonth: month,
+        totalIncome: layers.income,
         essentialBudget: layers.fixedExpenses + layers.healthExpenses + layers.essentialExpenses,
+        installments: layers.installments,
         investmentBudget: layers.goalAporte,
         freeBudget: layers.freeBudget,
         alerts: JSON.stringify(alerts),
@@ -159,7 +215,9 @@ export async function recalculate(userId: string, months: string[] = [currentMon
         leisureDetails,
       },
       update: {
+        totalIncome: layers.income,
         essentialBudget: layers.fixedExpenses + layers.healthExpenses + layers.essentialExpenses,
+        installments: layers.installments,
         investmentBudget: layers.goalAporte,
         freeBudget: layers.freeBudget,
         alerts: JSON.stringify(alerts),
@@ -169,6 +227,7 @@ export async function recalculate(userId: string, months: string[] = [currentMon
         calculatedAt: new Date(),
       },
     })
+    // totalSpent uses only real DB transactions (previews are not confirmed yet)
     const totalSpent = transactions
       .filter((t) => t.status !== 'CANCELLED')
       .reduce((s, t) => s + t.amount, 0)

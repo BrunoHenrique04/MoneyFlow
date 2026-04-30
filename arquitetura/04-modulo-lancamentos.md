@@ -12,8 +12,11 @@ Registrar, editar e cancelar qualquer movimentação financeira. É o módulo ce
 |---|---|
 | `SINGLE` | Uma transação única em uma data |
 | `INSTALLMENT` | N transações geradas automaticamente, uma por mês |
-| `RECURRING` | Igual a INSTALLMENT mas com semântica de assinatura |
+| `FIXED` | Gerado por `RecurringTemplate` (configurado em Configurações) — representa gastos fixos perpétuos como aluguel, assinaturas |
 | `INCOME` | Entrada (renda extra, bônus) — ainda não impacta `monthlyIncome` |
+| `SHARED` | Gasto compartilhado / dívida com outra pessoa |
+
+> **`RECURRING` foi removido.** Anteriormente gerava N transações de uma vez com semântica de "repetir X meses". Foi eliminado porque duplicava a responsabilidade do `FIXED`/`RecurringTemplate`, que já cobre gastos que se repetem mensalmente de forma mais robusta (ativo indefinidamente, gerenciável em Configurações, sem necessidade de recriar manualmente). Registros antigos com `type = 'RECURRING'` no banco devem ser tratados como `FIXED` pelo Brain.
 
 ---
 

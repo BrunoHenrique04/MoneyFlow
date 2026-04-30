@@ -1,10 +1,17 @@
 import type { CategoryType } from './schemas/category'
-export type TransactionType = 'SINGLE' | 'INSTALLMENT' | 'RECURRING' | 'FIXED' | 'INCOME' | 'SHARED'
+export type TransactionType = 'SINGLE' | 'INSTALLMENT' | 'FIXED' | 'INCOME' | 'SHARED'
 export type Situacao = 'PAGO' | 'NAO_PAGO' | 'RECEBER'
 export type UtilityTag = 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 export type GoalPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 export type GoalStatus = 'ACTIVE' | 'COMPLETED' | 'PAUSED' | 'CANCELLED'
+export type GoalMode = 'DEADLINE_TARGET' | 'FIXED_APORTE_TARGET' | 'FIXED_APORTE_DEADLINE' | 'FREE_SAVING'
+
+export interface GoalDepositSummary {
+  month: string
+  deposited: number
+  expected: number
+}
 
 export interface ApiResponse<T> {
   data: T | null
@@ -68,6 +75,7 @@ export interface Transaction {
   updatedAt: string
   account?: Account
   category?: Category
+  installmentGroup?: { totalInstallments: number } | null
   isFuture?: boolean
 }
 
@@ -86,14 +94,22 @@ export interface Goal {
   id: string
   userId: string
   name: string
-  targetAmount: number
+  goalMode: GoalMode
+  targetAmount: number | null
   savedAmount: number
-  targetDate: string
+  targetDate: string | null
+  fixedMonthlyAporte: number | null
   priority: GoalPriority
   status: GoalStatus
   monthlyAporte: number
-  progressPercent: number
-  monthsRemaining: number
+  progressPercent: number | null
+  monthsRemaining: number | null
+  depositedThisMonth: number
+  remainingThisMonth: number
+  estimatedDeadline: string | null
+  projectedTotal: number | null
+  onTrack: boolean
+  depositHistory: GoalDepositSummary[]
   createdAt: string
   updatedAt: string
 }
@@ -127,6 +143,7 @@ export interface Debt {
 export interface RecurringTemplate {
   id: string
   userId: string
+  type: 'FIXED' | 'INCOME'
   description: string
   amount: number
   accountId: string

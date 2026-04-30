@@ -1,5 +1,5 @@
 'use client'
-import { useRecommendation, useUser, useMonthlyReport } from '@/hooks/useReports'
+import { useRecommendation, useUser } from '@/hooks/useReports'
 import { useUIStore } from '@/store/ui.store'
 import { Card, CardTitle, CardValue } from '@/components/ui/card'
 import { InfoTooltip } from '@/components/ui/tooltip'
@@ -18,7 +18,9 @@ interface LeisureDetails {
 }
 
 interface RecData {
+  totalIncome: number
   essentialBudget: number
+  installments: number
   investmentBudget: number
   freeBudget: number
   leisureAvailable: number
@@ -27,12 +29,6 @@ interface RecData {
   suggestions: string[]
 }
 
-interface ReportTx {
-  amount: number
-  type: string
-}
-
-const PERSISTENT_TYPES = ['RECURRING', 'INSTALLMENT', 'FIXED']
 
 function TooltipLine({ label, value }: { label: string; value: string }) {
   return (
@@ -45,9 +41,8 @@ function TooltipLine({ label, value }: { label: string; value: string }) {
 
 export function BudgetOverview() {
   const { selectedMonth } = useUIStore()
-  const { data: rec } = useRecommendation()
+  const { data: rec } = useRecommendation(selectedMonth)
   const { data: user } = useUser()
-  const { data: reportRaw } = useMonthlyReport(selectedMonth)
 
   if (!rec || !user) {
     return (
@@ -64,14 +59,15 @@ export function BudgetOverview() {
 
   const recData = rec as RecData
   const userData = user as { monthlyIncome: number }
-  const income = userData.monthlyIncome
   const ld = recData.leisureDetails ?? {} as LeisureDetails
 
-  const reportTxs: ReportTx[] = (reportRaw as { transactions?: ReportTx[] } | undefined)?.transactions ?? []
-  const expenseTxs = reportTxs.filter((t) => t.type !== 'INCOME')
-  const committed = expenseTxs.reduce((s, t) => s + t.amount, 0)
-  const persistentes = expenseTxs.filter((t) => PERSISTENT_TYPES.includes(t.type)).reduce((s, t) => s + t.amount, 0)
-  const unicos = expenseTxs.filter((t) => !PERSISTENT_TYPES.includes(t.type)).reduce((s, t) => s + t.amount, 0)
+  // Use brain-computed income (includes INCOME template previews + RECEBER real txs)
+  const income = recData.totalIncome > 0 ? recData.totalIncome : userData.monthlyIncome
+  const baseIncome = userData.monthlyIncome
+  const extraIncome = income - baseIncome
+
+  // Committed = brain's essentialBudget (fixed+health+essential) + installments
+  const committed = recData.essentialBudget + (recData.installments ?? 0)
   const commitPct = income > 0 ? Math.round((committed / income) * 100) : 0
 
   const leisurePct = ld.freeBudget > 0 ? Math.round(((ld.leisureSpent ?? 0) / ld.freeBudget) * 100) : 0
@@ -87,9 +83,20 @@ export function BudgetOverview() {
         <Card>
           <CardTitle className="flex items-center gap-1">
             Renda
-            <InfoTooltip content="Sua renda mensal cadastrada no perfil. Altere em Configurações." />
+            <InfoTooltip content={
+              extraIncome > 0
+                ? <div className="space-y-1">
+                    <p>Renda efetiva do mês (base + receitas lançadas).</p>
+                    <TooltipLine label="Renda base" value={formatBRL(baseIncome)} />
+                    <TooltipLine label="+ Receitas do mês" value={formatBRL(extraIncome)} />
+                  </div>
+                : 'Sua renda mensal cadastrada no perfil. Altere em Configurações.'
+            } />
           </CardTitle>
           <CardValue className="text-foreground">{formatBRL(income)}</CardValue>
+          {extraIncome > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">+{formatBRL(extraIncome)} em receitas</p>
+          )}
         </Card>
 
         {/* Comprometido */}
@@ -98,9 +105,9 @@ export function BudgetOverview() {
             Comprometido
             <InfoTooltip content={
               <div className="space-y-1">
-                <p>Total gasto no mês selecionado (fixos + parcelas + essenciais + únicos). Exclui receitas e cancelados.</p>
-                <TooltipLine label="Persistentes (fixos/parcelas)" value={formatBRL(persistentes)} />
-                <TooltipLine label="Únicos (avulsos)" value={formatBRL(unicos)} />
+                <p>Fixos + saúde + essenciais + parcelas. Inclui previstos (fixos recorrentes ainda não confirmados).</p>
+                <TooltipLine label="Fixos/Saúde/Essenciais" value={formatBRL(recData.essentialBudget)} />
+                <TooltipLine label="Parcelas" value={formatBRL(recData.installments ?? 0)} />
               </div>
             } />
           </CardTitle>
@@ -110,12 +117,12 @@ export function BudgetOverview() {
           )}
           <div className="mt-2 pt-2 border-t border-border space-y-0.5">
             <p className="text-xs text-muted-foreground flex justify-between">
-              <span>Persistentes</span>
-              <span className="tabular-nums font-medium">{formatBRL(persistentes)}</span>
+              <span>Fixos/Essenciais</span>
+              <span className="tabular-nums font-medium">{formatBRL(recData.essentialBudget)}</span>
             </p>
             <p className="text-xs text-muted-foreground flex justify-between">
-              <span>Únicos</span>
-              <span className="tabular-nums font-medium">{formatBRL(unicos)}</span>
+              <span>Parcelas</span>
+              <span className="tabular-nums font-medium">{formatBRL(recData.installments ?? 0)}</span>
             </p>
           </div>
         </Card>
@@ -124,7 +131,7 @@ export function BudgetOverview() {
         <Card>
           <CardTitle className="flex items-center gap-1">
             Metas
-            <InfoTooltip content="Valor alocado pelo Brain para aportar nas suas metas ativas neste mês, distribuído por prioridade." />
+            <InfoTooltip content="Valor pré-reservado para suas metas ativas. Já diminuído pelo que você aportou este mês — o Brain usa o restante para calcular o orçamento livre." />
           </CardTitle>
           <CardValue className="text-blue-500">{formatBRL(recData.investmentBudget)}</CardValue>
         </Card>
@@ -135,9 +142,10 @@ export function BudgetOverview() {
             Orçamento Livre
             <InfoTooltip content={
               <div className="space-y-1">
-                <p>Renda − Comprometido − Metas. O que sobra depois de todos os compromissos.</p>
+                <p>Renda − Comprometido − Metas. Não desconta gastos não-essenciais (esses saem do livre).</p>
                 <TooltipLine label="Renda" value={formatBRL(income)} />
-                <TooltipLine label="− Essencial" value={formatBRL(recData.essentialBudget)} />
+                <TooltipLine label="− Essencial/Fixo/Saúde" value={formatBRL(recData.essentialBudget)} />
+                <TooltipLine label="− Parcelas" value={formatBRL(income - recData.freeBudget - recData.investmentBudget - recData.essentialBudget)} />
                 <TooltipLine label="− Metas" value={formatBRL(recData.investmentBudget)} />
                 <TooltipLine label="= Livre" value={formatBRL(recData.freeBudget)} />
               </div>

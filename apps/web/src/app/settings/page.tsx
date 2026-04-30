@@ -23,6 +23,7 @@ function RecurringTemplatesSection() {
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const emptyForm = {
+    type: 'FIXED' as 'FIXED' | 'INCOME',
     description: '',
     amount: '',
     accountId: '',
@@ -39,6 +40,7 @@ function RecurringTemplatesSection() {
     if (!form.description || !form.amount || !form.accountId || !form.categoryId) return
     create.mutate(
       {
+        type: form.type,
         description: form.description,
         amount: parseFloat(form.amount),
         accountId: form.accountId,
@@ -75,6 +77,7 @@ function RecurringTemplatesSection() {
   const startEdit = (tpl: RecurringTemplate) => {
     setEditingId(tpl.id)
     setForm({
+      type: (tpl.type ?? 'FIXED') as 'FIXED' | 'INCOME',
       description: tpl.description,
       amount: tpl.amount.toString(),
       accountId: tpl.accountId,
@@ -87,8 +90,26 @@ function RecurringTemplatesSection() {
     })
   }
 
-  const TemplateForm = ({ onSave, onCancel, saveLabel }: { onSave: () => void; onCancel: () => void; saveLabel: string }) => (
+  const TemplateForm = ({ onSave, onCancel, saveLabel, isEditing }: { onSave: () => void; onCancel: () => void; saveLabel: string; isEditing?: boolean }) => (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-3 border-t border-border">
+      {!isEditing && (
+        <div className="col-span-2 md:col-span-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, type: 'FIXED' })}
+            className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors ${form.type === 'FIXED' ? 'bg-primary text-primary-foreground border-primary' : 'border-border bg-background text-muted-foreground'}`}
+          >
+            Gasto Fixo
+          </button>
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, type: 'INCOME' })}
+            className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors ${form.type === 'INCOME' ? 'bg-green-600 text-white border-green-600' : 'border-border bg-background text-muted-foreground'}`}
+          >
+            Receita Recorrente
+          </button>
+        </div>
+      )}
       <label className="col-span-2 md:col-span-1 flex flex-col gap-1 text-sm">
         Descrição
         <input
@@ -196,10 +217,10 @@ function RecurringTemplatesSection() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-semibold text-sm flex items-center gap-2">
-            <RefreshCw size={15} className="text-primary" /> Gastos Fixos / Recorrentes Perpétuos
+            <RefreshCw size={15} className="text-primary" /> Fixos &amp; Recorrentes Perpétuos
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Contas de luz, água, aluguel — geradas automaticamente todo mês enquanto ativas.
+            Gastos fixos e receitas recorrentes — geradas automaticamente todo mês enquanto ativas.
           </p>
         </div>
         <Button size="sm" onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyForm) }}>
@@ -211,7 +232,7 @@ function RecurringTemplatesSection() {
         <TemplateForm
           onSave={handleCreate}
           onCancel={() => { setShowForm(false); setForm(emptyForm) }}
-          saveLabel={create.isPending ? 'Salvando...' : 'Criar gasto fixo'}
+          saveLabel={create.isPending ? 'Salvando...' : form.type === 'INCOME' ? 'Criar receita recorrente' : 'Criar gasto fixo'}
         />
       )}
 
@@ -229,11 +250,19 @@ function RecurringTemplatesSection() {
                 onSave={() => handleUpdate(tpl.id)}
                 onCancel={() => setEditingId(null)}
                 saveLabel={update.isPending ? 'Salvando...' : 'Salvar alterações'}
+                isEditing
               />
             ) : (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-sm">{tpl.description}</p>
+                  <p className="font-medium text-sm flex items-center gap-2">
+                    {tpl.description}
+                    {tpl.type === 'INCOME' ? (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">Receita</span>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Gasto</span>
+                    )}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {formatBRL(tpl.amount)} · Dia {tpl.dayOfMonth} · {tpl.startMonth}
                     {tpl.endMonth ? ` → ${tpl.endMonth}` : ' → perpétuo'}

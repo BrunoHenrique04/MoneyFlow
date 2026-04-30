@@ -22,6 +22,7 @@ model User {
   transactions         Transaction[]
   installmentGroups    InstallmentGroup[]
   goals                Goal[]
+  goalDeposits         GoalDeposit[]
   recommendations      Recommendation[]
   budgetSnapshots      BudgetSnapshot[]
   categoryLimits       CategoryLimit[]
@@ -136,6 +137,7 @@ model RecurringTemplate {
   amount      Float
   accountId   String
   categoryId  String
+  type        String    @default("FIXED") // FIXED | INCOME
   utilityTag  String                     // ESSENTIAL / NON_ESSENTIAL / INVESTMENT
   dayOfMonth  Int                        // 1–28
   startMonth  String                     // "YYYY-MM" primeiro mês
@@ -155,28 +157,49 @@ model RecurringTemplate {
 }
 
 model Goal {
-  id            String   @id @default(cuid())
-  userId        String
-  name          String
-  targetAmount  Float
-  savedAmount   Float    @default(0)
-  targetDate    DateTime
-  priority      String   @default("MEDIUM")
-  status        String   @default("ACTIVE")
-  monthlyAporte Float    @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                 String    @id @default(cuid())
+  userId             String
+  name               String
+  goalMode           String    @default("DEADLINE_TARGET")
+  targetAmount       Float?
+  savedAmount        Float     @default(0)
+  targetDate         DateTime?
+  fixedMonthlyAporte Float?
+  priority           String    @default("MEDIUM")
+  status             String    @default("ACTIVE")
+  monthlyAporte      Float     @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user     User          @relation(fields: [userId], references: [id])
+  deposits GoalDeposit[]
 
   @@index([userId, status])
+}
+
+model GoalDeposit {
+  id     String   @id @default(cuid())
+  goalId String
+  userId String
+  month  String
+  amount Float
+  note   String?
+  paidAt DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([goalId, month])
+  @@index([userId, month])
 }
 
 model Recommendation {
   id               String   @id @default(cuid())
   userId           String
   referenceMonth   String
+  totalIncome      Float    @default(0)
   essentialBudget  Float
+  installments     Float    @default(0)
   investmentBudget Float
   freeBudget       Float
   alerts           String   @default("[]")

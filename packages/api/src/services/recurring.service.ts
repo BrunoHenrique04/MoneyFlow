@@ -1,6 +1,17 @@
+import { addMonths } from 'date-fns'
 import { prisma } from '../prisma'
 import { recalculate } from '../brain'
 import type { CreateRecurringTemplateInput, UpdateRecurringTemplateInput } from '@moneyflow/shared'
+
+const RECALC_HORIZON = 12
+
+function monthsFrom(startMonth: string, count: number): string[] {
+  const [y, m] = startMonth.split('-').map(Number)
+  return Array.from({ length: count }, (_, i) => {
+    const d = addMonths(new Date(y, m - 1, 1), i)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+}
 
 async function getUserId() {
   const user = await prisma.user.findFirstOrThrow()
@@ -85,28 +96,46 @@ export async function createTemplate(input: CreateRecurringTemplateInput) {
     include: { account: true, category: true },
   })
 
-  const month = currentMonth()
-  if (template.startMonth <= month && (template.endMonth == null || template.endMonth >= month)) {
-    const tx = await generateForMonth(template.id, month)
-    if (tx) recalculate(userId, [month]).catch(console.error)
+  // Generate real transactions + recalculate for all active months in the next horizon
+  const today = currentMonth()
+  const start = template.startMonth > today ? template.startMonth : today
+  const months = monthsFrom(start, RECALC_HORIZON).filter(
+    (m) => !template.endMonth || m <= template.endMonth,
+  )
+  for (const m of months) {
+    await generateForMonth(template.id, m)
   }
+  if (months.length) recalculate(userId, months).catch(console.error)
 
   return template
 }
 
 export async function updateTemplate(id: string, input: UpdateRecurringTemplateInput) {
-  await prisma.recurringTemplate.findFirstOrThrow({ where: { id } })
-  return prisma.recurringTemplate.update({
+  const existing = await prisma.recurringTemplate.findFirstOrThrow({ where: { id } })
+  const updated = await prisma.recurringTemplate.update({
     where: { id },
     data: input,
     include: { account: true, category: true },
   })
+
+  // Recalculate all months that this template covers so Comprometido stays fresh
+  const months = monthsFrom(currentMonth(), RECALC_HORIZON).filter(
+    (m) => !updated.endMonth || m <= updated.endMonth,
+  )
+  if (months.length) recalculate(existing.userId, months).catch(console.error)
+
+  return updated
 }
 
 export async function deactivateTemplate(id: string) {
-  await prisma.recurringTemplate.findFirstOrThrow({ where: { id } })
-  return prisma.recurringTemplate.update({
+  const existing = await prisma.recurringTemplate.findFirstOrThrow({ where: { id } })
+  const updated = await prisma.recurringTemplate.update({
     where: { id },
     data: { isActive: false },
   })
+
+  // Recalculate future months so they no longer count this template in Comprometido
+  recalculate(existing.userId, monthsFrom(currentMonth(), RECALC_HORIZON)).catch(console.error)
+
+  return updated
 }

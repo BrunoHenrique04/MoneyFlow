@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { addMonths, parse, isValid } from 'date-fns'
+import { addMonths, parse, isValid, format as fmtDate } from 'date-fns'
 import { prisma } from '../prisma'
 import { recalculate } from '../brain'
 import type { CreateTransactionInput, UpdateTransactionInput } from '@moneyflow/shared'
@@ -50,7 +50,7 @@ export async function listTransactions(filters: {
 
   const items = await prisma.transaction.findMany({
     where,
-    include: { account: true, category: true },
+    include: { account: true, category: true, installmentGroup: { select: { totalInstallments: true } } },
     orderBy: { dueDate: 'asc' },
   })
 
@@ -98,7 +98,7 @@ export async function getProjections(month: string) {
   // Real transactions already in DB for this month
   const existing = await prisma.transaction.findMany({
     where: { userId, dueDate: range, status: { not: 'CANCELLED' } },
-    include: { account: true, category: true },
+    include: { account: true, category: true, installmentGroup: { select: { totalInstallments: true } } },
     orderBy: { dueDate: 'asc' },
   })
 
@@ -130,7 +130,7 @@ export async function getProjections(month: string) {
         totalAmount: null,
         pessoa: null,
         situacao: null,
-        type: 'FIXED',
+        type: tpl.type,
         utilityTag: tpl.utilityTag,
         status: 'PENDING',
         dueDate: new Date(y, m - 1, day).toISOString(),
@@ -203,33 +203,6 @@ export async function createTransaction(input: CreateTransactionInput) {
     })
   }
 
-  if (input.type === 'RECURRING') {
-    const dueDates: Date[] = []
-    const rows = Array.from({ length: input.recurrenceMonths }, (_, i) => {
-      const dueDate = addMonths(new Date(input.firstDueDate), i)
-      dueDates.push(dueDate)
-      return {
-        userId,
-        accountId: input.accountId ?? null,
-        categoryId: input.categoryId,
-        description: input.description,
-        amount: input.amount,
-        type: 'RECURRING' as const,
-        utilityTag: input.utilityTag,
-        status: 'PENDING' as const,
-        dueDate,
-        notes: input.notes ?? null,
-        pessoa: input.pessoa ?? null,
-        situacao: input.situacao ?? null,
-        totalAmount: null,
-      }
-    })
-
-    await prisma.transaction.createMany({ data: rows })
-    recalculate(userId, getAffectedMonths(dueDates)).catch(console.error)
-    return { created: rows.length }
-  }
-
   const amount = Math.abs((input as { amount: number }).amount)
   const dueDate = new Date((input as { dueDate: string }).dueDate)
 
@@ -259,18 +232,64 @@ export async function createTransaction(input: CreateTransactionInput) {
 export async function updateTransaction(id: string, data: UpdateTransactionInput) {
   const userId = await getUserId()
   const existing = await prisma.transaction.findFirstOrThrow({ where: { id } })
+  const { scope, ...rest } = data
 
   const updated = await prisma.transaction.update({
     where: { id },
     data: {
-      ...data,
-      dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-      paidAt: data.paidAt ? new Date(data.paidAt) : undefined,
+      ...rest,
+      dueDate: rest.dueDate ? new Date(rest.dueDate) : undefined,
+      paidAt: rest.paidAt ? new Date(rest.paidAt) : undefined,
     },
-    include: { account: true, category: true },
+    include: { account: true, category: true, installmentGroup: { select: { totalInstallments: true } } },
   })
 
-  recalculate(userId, [toMonthStr(existing.dueDate)]).catch(console.error)
+  if (scope === 'this_and_future' && existing.installmentGroupId && existing.installmentNumber != null) {
+    const metaFields: (keyof typeof rest)[] = ['description', 'amount', 'categoryId', 'accountId', 'utilityTag', 'notes', 'pessoa', 'situacao']
+    const metaUpdate: Record<string, unknown> = {}
+    for (const f of metaFields) {
+      if (rest[f] !== undefined) metaUpdate[f] = rest[f]
+    }
+
+    const futureInstallments = await prisma.transaction.findMany({
+      where: {
+        installmentGroupId: existing.installmentGroupId,
+        installmentNumber: { gt: existing.installmentNumber },
+        status: { not: 'CANCELLED' },
+      },
+    })
+
+    if (rest.dueDate) {
+      // Propagate only the day-of-month; each installment keeps its own month/year
+      const newDay = new Date(rest.dueDate).getDate()
+      for (const fi of futureInstallments) {
+        const d = new Date(fi.dueDate)
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+        const clampedDay = Math.min(newDay, daysInMonth)
+        await prisma.transaction.update({
+          where: { id: fi.id },
+          data: { ...metaUpdate, dueDate: new Date(d.getFullYear(), d.getMonth(), clampedDay) },
+        })
+      }
+    } else if (Object.keys(metaUpdate).length > 0) {
+      await prisma.transaction.updateMany({
+        where: {
+          installmentGroupId: existing.installmentGroupId,
+          installmentNumber: { gt: existing.installmentNumber },
+          status: { not: 'CANCELLED' },
+        },
+        data: metaUpdate,
+      })
+    }
+
+    const affectedMonths = futureInstallments.map(fi => toMonthStr(fi.dueDate))
+    recalculate(userId, [...new Set([toMonthStr(existing.dueDate), ...affectedMonths])]).catch(console.error)
+  } else {
+    const affectedMonths = [toMonthStr(existing.dueDate)]
+    if (rest.dueDate) affectedMonths.push(toMonthStr(new Date(rest.dueDate)))
+    recalculate(userId, affectedMonths).catch(console.error)
+  }
+
   return updated
 }
 
@@ -376,7 +395,13 @@ export async function migrateDebtsToTransactions() {
   return { migrated: debts.length }
 }
 
-// ─── ODS / XLSX / CSV Import ──────────────────────────────────────────────────
+// ─── ODS / XLSX / CSV Import & Export ────────────────────────────────────────
+
+// Export columns labels (used for both export generation and import detection)
+const EXPORT_COLS = [
+  'Data', 'Descrição', 'Tipo', 'Categoria', 'Conta', 'Tag', 'Pessoa', 'Status',
+  'Valor Total', 'Valor', 'Parcela', 'Total Parcelas', 'Grupo ID', 'Pago Em', 'Notas',
+]
 
 function parseDateImport(raw: unknown): Date | null {
   if (!raw || String(raw).includes('?')) return null
@@ -406,68 +431,388 @@ function parseSituacaoImport(raw: unknown): 'PAGO' | 'NAO_PAGO' | 'RECEBER' {
   return 'NAO_PAGO'
 }
 
+function parseStatusImport(raw: unknown): { status: 'PAID' | 'PENDING' | 'CANCELLED'; situacao: 'PAGO' | 'NAO_PAGO' | 'RECEBER' | null } {
+  const s = String(raw ?? '').trim().toLowerCase()
+  if (s === 'pago' || s === 'paid') return { status: 'PAID', situacao: 'PAGO' }
+  if (s === 'a receber' || s === 'receber' || s === 'receivable') return { status: 'PENDING', situacao: 'RECEBER' }
+  if (s === 'cancelado' || s === 'cancelled' || s === 'canceled') return { status: 'CANCELLED', situacao: null }
+  if (s === 'nao_pago' || s === 'nao pago') return { status: 'PENDING', situacao: 'NAO_PAGO' }
+  return { status: 'PENDING', situacao: 'NAO_PAGO' }
+}
+
+function parseTagImport(raw: unknown): 'ESSENTIAL' | 'NON_ESSENTIAL' | 'INVESTMENT' {
+  const s = String(raw ?? '').trim().toLowerCase()
+  if (s === 'essencial' || s === 'essential') return 'ESSENTIAL'
+  if (s === 'investimento' || s === 'investment') return 'INVESTMENT'
+  return 'NON_ESSENTIAL'
+}
+
+function parseTypeImport(raw: unknown): string {
+  const s = String(raw ?? '').trim().toLowerCase()
+  if (s === 'receita' || s === 'income') return 'INCOME'
+  if (s === 'compartilhado' || s === 'shared') return 'SHARED'
+  if (s === 'fixo' || s === 'fixed') return 'FIXED'
+  // parcela/recorrente importada como SINGLE para evitar duplicar grupos
+  return 'SINGLE'
+}
+
+function get(row: Record<string, unknown>, keys: string[]): unknown {
+  for (const k of keys) {
+    const match = Object.keys(row).find(
+      (rk) => rk.toLowerCase().replace(/\s+/g, '') === k.toLowerCase().replace(/\s+/g, ''),
+    )
+    if (match !== undefined) return row[match]
+  }
+  return ''
+}
+
+function isTableFormat(row: Record<string, unknown>): boolean {
+  const keys = Object.keys(row).map((k) => k.toLowerCase().replace(/\s+/g, ''))
+  return keys.includes('tipo') || keys.includes('categoria') || keys.includes('tag')
+}
+
 export async function importFromFile(buffer: Buffer) {
   const userId = await getUserId()
 
-  const undefinedCat = await prisma.category.findFirstOrThrow({
-    where: { userId, name: 'Não Definida', isDefault: true },
-  })
+  const categories = await prisma.category.findMany({ where: { userId } })
+  const accounts   = await prisma.account.findMany({ where: { userId, isActive: true } })
+  const fallbackCat = categories.find((c) => c.isDefault && c.name === 'Não Definida')
+    ?? categories.find((c) => c.isDefault)
+    ?? categories[0]
 
-  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false })
+  const wb    = XLSX.read(buffer, { type: 'buffer', cellDates: false })
   const sheet = wb.Sheets[wb.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: true })
+  const rows  = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: true })
 
-  const get = (row: Record<string, unknown>, keys: string[]): unknown => {
-    for (const k of keys) {
-      const match = Object.keys(row).find(
-        (rk) => rk.toLowerCase().replace(/\s+/g, '') === k.toLowerCase().replace(/\s+/g, ''),
-      )
-      if (match !== undefined) return row[match]
-    }
-    return ''
-  }
+  if (!rows.length) throw Object.assign(new Error('Arquivo vazio'), { code: 'EMPTY_FILE' })
+
+  const newFormat = rows[0] ? isTableFormat(rows[0]) : false
 
   const months = new Set<string>()
   let imported = 0
 
-  for (const row of rows) {
-    const pessoa = String(get(row, ['Pessoa', 'pessoa']) ?? '').trim()
-    if (!pessoa) continue
+  if (newFormat) {
+    // ── Phase 1: separate installment-group rows from simple rows ─────────────
+    // Rows with the same non-empty "Grupo ID" and type INSTALLMENT are grouped
+    // together and reconstructed as a proper InstallmentGroup + Transactions.
+    const installmentBuckets = new Map<string, Record<string, unknown>[]>()
+    const simpleRows: Record<string, unknown>[] = []
 
-    const valorAPagar = parseValueImport(get(row, ['valor a pagar', 'ValorAPagar', 'Valor a pagar']))
-    const valorTotal = parseValueImport(get(row, ['Valor Total da compra', 'ValorTotalDaCompra', 'valor total']))
-    const dueDate = parseDateImport(get(row, ['Data Vencimento', 'DataVencimento', 'data vencimento']))
-      ?? parseDateImport(get(row, ['data', 'Data', 'DataCompra']))
-      ?? new Date()
+    for (const row of rows) {
+      const rawType = parseTypeImport(get(row, ['tipo']))
+      const grupoId = String(get(row, ['grupoid', 'grupo id']) ?? '').trim()
+      if (rawType === 'INSTALLMENT' && grupoId) {
+        const bucket = installmentBuckets.get(grupoId) ?? []
+        bucket.push(row)
+        installmentBuckets.set(grupoId, bucket)
+      } else {
+        simpleRows.push(row)
+      }
+    }
 
-    const situacao = parseSituacaoImport(get(row, ['Situação', 'Situacao', 'situação', 'situacao']))
-    const status = situacao === 'PAGO' ? ('PAID' as const) : ('PENDING' as const)
-    const amount = Math.abs(valorAPagar)
+    // ── Phase 2: simple (non-installment-group) rows ──────────────────────────
+    for (const row of simpleRows) {
+      const description = String(get(row, ['descrição', 'descricao']) ?? '').trim()
+      const amount      = parseValueImport(get(row, ['valor']))
+      if (!description || !amount) continue
 
-    await prisma.transaction.create({
-      data: {
-        userId,
-        accountId: null,
-        categoryId: undefinedCat.id,
-        description: String(get(row, ['descrição', 'descricao', 'Descrição', 'Descricao']) ?? '').trim() || pessoa,
-        amount,
-        totalAmount: valorTotal && valorTotal !== amount ? valorTotal : null,
-        type: 'SHARED',
-        utilityTag: 'NON_ESSENTIAL',
-        status,
-        dueDate,
-        notes: String(get(row, ['Banco', 'banco']) ?? '').trim() || null,
-        pessoa,
-        situacao,
-      },
-    })
+      const dueDate = parseDateImport(get(row, ['data'])) ?? new Date()
 
-    months.add(toMonthStr(new Date(dueDate)))
-    imported++
+      const catName  = String(get(row, ['categoria']) ?? '').trim()
+      const category = (catName && categories.find((c) => c.name.toLowerCase() === catName.toLowerCase()))
+        ?? fallbackCat
+      if (!category) continue
+
+      const accName = String(get(row, ['conta']) ?? '').trim()
+      const account = accName ? accounts.find((a) => a.name.toLowerCase() === accName.toLowerCase()) : null
+
+      const { status, situacao } = parseStatusImport(get(row, ['status']))
+      const utilityTag           = parseTagImport(get(row, ['tag']))
+      const type                 = parseTypeImport(get(row, ['tipo']))
+      const pessoa               = String(get(row, ['pessoa']) ?? '').trim() || null
+      const totalAmountRaw       = parseValueImport(get(row, ['valortotal', 'valor total']))
+      const notes                = String(get(row, ['notas', 'observações', 'observacoes']) ?? '').trim() || null
+      const paidAtRaw            = parseDateImport(get(row, ['pagoem', 'pago em', 'data pagamento']))
+
+      await prisma.transaction.create({
+        data: {
+          userId,
+          accountId:   account?.id ?? null,
+          categoryId:  category.id,
+          description,
+          amount:      Math.abs(amount),
+          totalAmount: totalAmountRaw && totalAmountRaw !== Math.abs(amount) ? totalAmountRaw : null,
+          type,
+          utilityTag,
+          status,
+          dueDate,
+          paidAt: paidAtRaw ?? (status === 'PAID' ? new Date() : null),
+          notes,
+          pessoa,
+          situacao,
+        },
+      })
+
+      months.add(toMonthStr(dueDate))
+      imported++
+    }
+
+    // ── Phase 3: installment groups ───────────────────────────────────────────
+    // Reconstruct each group: create InstallmentGroup, then insert each Transaction
+    // directly (bypassing the auto-generate logic which would duplicate rows).
+    for (const [, groupRows] of installmentBuckets) {
+      if (!groupRows.length) continue
+
+      // Sort by installment number so row 1 is used as the reference
+      groupRows.sort((a, b) => {
+        const na = parseInt(String(get(a, ['parcela']) ?? '0')) || 0
+        const nb = parseInt(String(get(b, ['parcela']) ?? '0')) || 0
+        return na - nb
+      })
+
+      const firstRow       = groupRows[0]
+      const description    = String(get(firstRow, ['descrição', 'descricao']) ?? '').trim()
+      if (!description) continue
+
+      const totalParcelasRaw = parseInt(String(get(firstRow, ['totalparcelas', 'total parcelas']) ?? '0')) || 0
+      const totalInstallments = Math.max(totalParcelasRaw, groupRows.length)
+
+      const totalAmountRaw = parseValueImport(get(firstRow, ['valortotal', 'valor total']))
+      const totalAmount    = totalAmountRaw || groupRows.reduce((s, r) => s + parseValueImport(get(r, ['valor'])), 0)
+
+      const firstDueDate = parseDateImport(get(firstRow, ['data'])) ?? new Date()
+
+      const group = await prisma.installmentGroup.create({
+        data: { userId, description, totalAmount, totalInstallments, firstDueDate },
+      })
+
+      for (const r of groupRows) {
+        const amount = parseValueImport(get(r, ['valor']))
+        if (!amount) continue
+
+        const dueDate = parseDateImport(get(r, ['data'])) ?? new Date()
+
+        const catName  = String(get(r, ['categoria']) ?? '').trim()
+        const category = (catName && categories.find((c) => c.name.toLowerCase() === catName.toLowerCase()))
+          ?? fallbackCat
+        if (!category) continue
+
+        const accName = String(get(r, ['conta']) ?? '').trim()
+        const account = accName ? accounts.find((a) => a.name.toLowerCase() === accName.toLowerCase()) : null
+
+        const { status, situacao } = parseStatusImport(get(r, ['status']))
+        const utilityTag           = parseTagImport(get(r, ['tag']))
+        const pessoa               = String(get(r, ['pessoa']) ?? '').trim() || null
+        const notes                = String(get(r, ['notas', 'observações', 'observacoes']) ?? '').trim() || null
+        const installmentNumber    = parseInt(String(get(r, ['parcela']) ?? '0')) || null
+        const paidAtRaw            = parseDateImport(get(r, ['pagoem', 'pago em', 'data pagamento']))
+
+        await prisma.transaction.create({
+          data: {
+            userId,
+            accountId:          account?.id ?? null,
+            categoryId:         category.id,
+            installmentGroupId: group.id,
+            description,
+            amount:             Math.abs(amount),
+            totalAmount:        null,
+            type:               'INSTALLMENT',
+            utilityTag,
+            status,
+            dueDate,
+            paidAt:             paidAtRaw ?? (status === 'PAID' ? new Date() : null),
+            installmentNumber,
+            notes,
+            pessoa,
+            situacao,
+          },
+        })
+
+        months.add(toMonthStr(dueDate))
+        imported++
+      }
+    }
+  } else {
+    // ── Legacy debt/shared format (backwards compat) ──────────────────────────
+    for (const row of rows) {
+      const pessoa = String(get(row, ['Pessoa', 'pessoa']) ?? '').trim()
+      if (!pessoa) continue
+
+      const valorAPagar = parseValueImport(get(row, ['valor a pagar', 'ValorAPagar', 'Valor a pagar']))
+      const valorTotal  = parseValueImport(get(row, ['Valor Total da compra', 'ValorTotalDaCompra', 'valor total']))
+      const dueDate     = parseDateImport(get(row, ['Data Vencimento', 'DataVencimento', 'data vencimento']))
+        ?? parseDateImport(get(row, ['data', 'Data', 'DataCompra']))
+        ?? new Date()
+
+      const situacao = parseSituacaoImport(get(row, ['Situação', 'Situacao', 'situação', 'situacao']))
+      const status   = situacao === 'PAGO' ? ('PAID' as const) : ('PENDING' as const)
+      const amount   = Math.abs(valorAPagar)
+
+      await prisma.transaction.create({
+        data: {
+          userId,
+          accountId:   null,
+          categoryId:  fallbackCat?.id ?? categories[0].id,
+          description: String(get(row, ['descrição', 'descricao', 'Descrição', 'Descricao']) ?? '').trim() || pessoa,
+          amount,
+          totalAmount: valorTotal && valorTotal !== amount ? valorTotal : null,
+          type:        'SHARED',
+          utilityTag:  'NON_ESSENTIAL',
+          status,
+          dueDate,
+          notes:       String(get(row, ['Banco', 'banco']) ?? '').trim() || null,
+          pessoa,
+          situacao,
+        },
+      })
+
+      months.add(toMonthStr(dueDate))
+      imported++
+    }
   }
 
   if (!imported) throw Object.assign(new Error('Nenhuma linha válida encontrada no arquivo'), { code: 'EMPTY_FILE' })
 
   recalculate(userId, [...months]).catch(console.error)
   return { imported }
+}
+
+function statusLabel(t: { status: string; situacao: string | null }): string {
+  if (t.situacao === 'RECEBER') return 'A Receber'
+  if (t.status === 'PAID' || t.situacao === 'PAGO') return 'Pago'
+  if (t.status === 'CANCELLED') return 'Cancelado'
+  return 'Pendente'
+}
+
+function typeLabel(type: string): string {
+  const m: Record<string, string> = {
+    SINGLE: 'Único', INSTALLMENT: 'Parcela',
+    FIXED: 'Fixo', INCOME: 'Receita', SHARED: 'Compartilhado',
+  }
+  return m[type] ?? type
+}
+
+function tagLabel(tag: string): string {
+  if (tag === 'ESSENTIAL') return 'Essencial'
+  if (tag === 'INVESTMENT') return 'Investimento'
+  return 'Não Essencial'
+}
+
+export async function exportTransactions(month?: string): Promise<Buffer> {
+  const userId = await getUserId()
+  const now = new Date()
+  const curMonth = toMonthStr(now)
+
+  // Real DB transactions
+  const where: Record<string, unknown> = { userId }
+  if (month) {
+    const [y, m] = month.split('-').map(Number)
+    where.dueDate = { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) }
+  }
+
+  const dbItems = await prisma.transaction.findMany({
+    where,
+    include: { account: true, category: true, installmentGroup: true },
+    orderBy: { dueDate: 'asc' },
+  })
+
+  // Recurring template previews for current + future months
+  // (only rows not yet generated as real transactions)
+  const templates = await prisma.recurringTemplate.findMany({
+    where: { userId, isActive: true },
+    include: { account: true, category: true },
+  })
+
+  // Map: month → set of templateIds already covered by a real transaction
+  const coveredByMonth = new Map<string, Set<string>>()
+  for (const t of dbItems) {
+    if (!t.recurringTemplateId) continue
+    const m = toMonthStr(new Date(t.dueDate))
+    if (!coveredByMonth.has(m)) coveredByMonth.set(m, new Set())
+    coveredByMonth.get(m)!.add(t.recurringTemplateId)
+  }
+
+  // Which months to project: if month-specific, just that month (if current/future);
+  // if all-months export, project current month + next 11 months
+  const monthsToProject: string[] = []
+  if (month) {
+    if (month >= curMonth) monthsToProject.push(month)
+  } else {
+    for (let i = 0; i < 12; i++) {
+      monthsToProject.push(toMonthStr(addMonths(now, i)))
+    }
+  }
+
+  type DbItem = (typeof dbItems)[0]
+  const previews: (DbItem & { isProjection: true })[] = []
+
+  for (const m of monthsToProject) {
+    const [y, mo] = m.split('-').map(Number)
+    const covered = coveredByMonth.get(m) ?? new Set()
+
+    for (const tpl of templates) {
+      if (covered.has(tpl.id)) continue
+      if (tpl.startMonth > m) continue
+      if (tpl.endMonth && tpl.endMonth < m) continue
+
+      const day = Math.min(tpl.dayOfMonth, new Date(y, mo, 0).getDate())
+      previews.push({
+        id: `preview-${tpl.id}-${m}`,
+        userId,
+        accountId: tpl.accountId,
+        categoryId: tpl.categoryId,
+        installmentGroupId: null,
+        recurringTemplateId: tpl.id,
+        description: tpl.description,
+        amount: tpl.amount,
+        totalAmount: null,
+        pessoa: null,
+        situacao: null,
+        type: 'FIXED',
+        utilityTag: tpl.utilityTag,
+        status: 'PENDING',
+        dueDate: new Date(y, mo - 1, day),
+        paidAt: null,
+        installmentNumber: null,
+        notes: tpl.notes ?? null,
+        createdAt: now,
+        updatedAt: now,
+        account: tpl.account,
+        category: tpl.category,
+        installmentGroup: null,
+        isProjection: true,
+      } as DbItem & { isProjection: true })
+    }
+  }
+
+  const allItems = [...dbItems, ...previews].sort(
+    (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+  )
+
+  const rows = allItems.map((t) => ({
+    [EXPORT_COLS[0]]: fmtDate(new Date(t.dueDate), 'dd/MM/yyyy'),
+    [EXPORT_COLS[1]]: t.description,
+    [EXPORT_COLS[2]]: typeLabel(t.type),
+    [EXPORT_COLS[3]]: t.category.name,
+    [EXPORT_COLS[4]]: t.account?.name ?? '',
+    [EXPORT_COLS[5]]: tagLabel(t.utilityTag),
+    [EXPORT_COLS[6]]: t.pessoa ?? '',
+    [EXPORT_COLS[7]]: (t as typeof t & { isProjection?: boolean }).isProjection
+      ? 'Projeção'
+      : statusLabel(t),
+    [EXPORT_COLS[8]]: t.type === 'INSTALLMENT'
+      ? (t.installmentGroup?.totalAmount ?? t.totalAmount ?? '')
+      : (t.totalAmount ?? ''),
+    [EXPORT_COLS[9]]: t.amount,
+    [EXPORT_COLS[10]]: t.installmentNumber ?? '',
+    [EXPORT_COLS[11]]: t.installmentGroup?.totalInstallments ?? '',
+    [EXPORT_COLS[12]]: t.installmentGroupId ?? '',
+    [EXPORT_COLS[13]]: t.paidAt ? fmtDate(new Date(t.paidAt), 'dd/MM/yyyy HH:mm') : '',
+    [EXPORT_COLS[14]]: t.notes ?? '',
+  }))
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.json_to_sheet(rows, { header: EXPORT_COLS })
+  XLSX.utils.book_append_sheet(wb, ws, 'Lançamentos')
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
 }

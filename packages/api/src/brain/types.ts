@@ -1,12 +1,15 @@
 export interface GoalWithAllocation {
   id: string
   name: string
-  targetAmount: number
+  goalMode: string
+  targetAmount: number | null
   savedAmount: number
-  targetDate: Date
+  targetDate: Date | null
+  fixedMonthlyAporte: number | null
   priority: string
   status: string
   monthlyAporte: number
+  depositedThisMonth: number
   allocatedAporte?: number
   onTrackWarning?: boolean
 }
@@ -18,6 +21,8 @@ export interface TransactionWithCategory {
   utilityTag: string
   categoryId: string
   status: string
+  situacao?: string | null
+  recurringTemplateId?: string | null
   category: { categoryType: string; name: string }
 }
 
@@ -29,8 +34,9 @@ export interface TransactionWithCategory {
 // 5. GOALS (savings towards objectives)
 // 6. FREE (discretionary)
 export interface BudgetLayers {
-  income: number
-  fixedExpenses: number      // RECURRING + FIXED category
+  income: number             // effectiveIncome = baseIncome + extraIncome
+  extraIncome: number        // sum of INCOME + RECEBER transactions for the month
+  fixedExpenses: number      // FIXED type or FIXED category
   healthExpenses: number     // HEALTH category
   essentialExpenses: number  // ESSENTIAL tag, not FIXED/HEALTH
   installments: number       // INSTALLMENT type (not counted above)
